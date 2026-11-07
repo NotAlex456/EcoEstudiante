@@ -1,0 +1,494 @@
+import { useSyncExternalStore } from 'react'
+import { createSeedState, simulatedReply, STATE_VERSION } from './data'
+import type { Agreement, Conversation, Material, ScheduledEvent, State, User } from './types'
+
+const STORAGE_KEY = 'ecoestudiante:v1'
+export const INSTITUTIONAL_EMAIL = /^[a-z0-9._-]+@upsjb\.edu\.pe$/i
+
+export const uid = (prefix: string) =>
+  `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+
+/* ---------- persistence ---------- */
+
+function load(): State {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as State
+      if (parsed.version === STATE_VERSION) return parsed
+    }
+  } catch {
+    // corrupted or unavailable storage: start from the seed
+  }
+  return createSeedState()
+}
+
+let state: State = load()
+const listeners = new Set<() => void>()
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    toast('El almacenamiento del celular está lleno. Usa menos fotos o elimina publicaciones antiguas.', 'error')
+  }
+}
+
+function setState(updater: (draft: State) => State) {
+  state = updater(state)
+  persist()
+  listeners.forEach((listener) => listener())
+}
+
+export function getState() {
+  return state
+}
+
+export function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export function useStore<T>(selector: (s: State) => T): T {
+  return useSyncExternalStore(subscribe, () => selector(state))
+}
+
+// Keep several open tabs in sync.
+window.addEventListener('storage', (event) => {
+  if (event.key !== STORAGE_KEY) return
+  state = load()
+  listeners.forEach((listener) => listener())
+})
+
+/* ---------- toasts ---------- */
+
+export type Toast = { id: string; text: string; tone: 'ok' | 'error' }
+let toasts: Toast[] = []
+const toastListeners = new Set<() => void>()
+
+export function toast(text: string, tone: Toast['tone'] = 'ok') {
+  const item = { id: uid('t'), text, tone }
+  toasts = [...toasts, item]
+  toastListeners.forEach((l) => l())
+  setTimeout(() => {
+    toasts = toasts.filter((t) => t.id !== item.id)
+    toastListeners.forEach((l) => l())
+  }, 3600)
+}
+
+export function useToasts() {
+  return useSyncExternalStore(
+    (listener) => {
+      toastListeners.add(listener)
+      return () => toastListeners.delete(listener)
+    },
+    () => toasts,
+  )
+}
+
+/* ---------- selectors ---------- */
+
+export const currentUser = (s: State) => s.users.find((u) => u.id === s.sessionUserId) ?? null
+export const userById = (s: State, id: string) => s.users.find((u) => u.id === id)
+export const materialById = (s: State, id: string) => s.materials.find((m) => m.id === id)
+
+export function userRating(s: State, userId: string) {
+  const user = userById(s, userId)
+  const ratings = s.agreements.filter((a) => a.sellerId === userId && a.rating).map((a) => a.rating!.stars)
+  const baseCount = user?.baseRatingCount ?? 0
+  const count = baseCount + ratings.length
+  if (!count) return { value: 0, count: 0 }
+  const total = (user?.baseRating ?? 0) * baseCount + ratings.reduce((a, b) => a + b, 0)
+  return { value: Math.round((total / count) * 10) / 10, count }
+}
+
+export function unreadCount(s: State, conversation: Conversation, userId: string) {
+  const since = conversation.readAt[userId] ?? 0
+  return conversation.messages.filter((m) => m.from !== userId && m.at > since).length
+}
+
+export const initials = (name: string) =>
+  name.split(' ').filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase()
+
+/* ---------- auth ---------- */
+
+async function hashPassword(password: string) {
+  const data = new TextEncoder().encode(`eco:${password}`)
+  if (crypto?.subtle) {
+    const digest = await crypto.subtle.digest('SHA-256', data)
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  // Non-secure contexts (plain http on a LAN IP) lack crypto.subtle.
+  let h = 0
+  data.forEach((b) => (h = (Math.imul(31, h) + b) | 0))
+  return `w${h}`
+}
+
+export async function register(input: { name: string; email: string; career: string; cycle: number; password: string }) {
+  const email = input.email.trim().toLowerCase()
+  if (!INSTITUTIONAL_EMAIL.test(email)) return { error: 'Usa tu correo institucional (nombre.apellido@upsjb.edu.pe).' }
+  if (state.users.some((u) => u.email === email && u.passwordHash))
+    return { error: 'Ya existe una cuenta con este correo. Inicia sesión.' }
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  const user: User = {
+    id: uid('u'),
+    name: input.name.trim(),
+    email,
+    career: input.career,
+    cycle: input.cycle,
+    passwordHash: await hashPassword(input.password),
+    verified: false,
+    pendingCode: code,
+    createdAt: Date.now(),
+  }
+  setState((s) => ({ ...s, users: [...s.users.filter((u) => u.email !== email), user] }))
+  return { userId: user.id, code }
+}
+
+export function resendCode(userId: string) {
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, pendingCode: code } : u)) }))
+  return code
+}
+
+export function verifyEmail(userId: string, code: string) {
+  const user = userById(state, userId)
+  if (!user || user.pendingCode !== code.trim()) return false
+  setState((s) => ({
+    ...s,
+    sessionUserId: userId,
+    users: s.users.map((u) => (u.id === userId ? { ...u, verified: true, pendingCode: undefined } : u)),
+    notifications: [
+      ...s.notifications,
+      {
+        id: uid('n'), userId, at: Date.now(), read: false, link: '#/cuenta',
+        text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
+      },
+    ],
+  }))
+  return true
+}
+
+type LoginResult = { error: string } | { needsVerification: true; userId: string; code: string } | { ok: true }
+
+export async function login(emailInput: string, password: string): Promise<LoginResult> {
+  const email = emailInput.trim().toLowerCase()
+  const user = state.users.find((u) => u.email === email && u.passwordHash)
+  if (!user || user.passwordHash !== (await hashPassword(password)))
+    return { error: 'Correo o contraseña incorrectos.' }
+  if (!user.verified) return { needsVerification: true, userId: user.id, code: resendCode(user.id) }
+  setState((s) => ({ ...s, sessionUserId: user.id }))
+  return { ok: true }
+}
+
+export function logout() {
+  setState((s) => ({ ...s, sessionUserId: null }))
+}
+
+export function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle'>) {
+  setState((s) => ({ ...s, users: s.users.map((u) => (u.id === s.sessionUserId ? { ...u, ...patch } : u)) }))
+}
+
+export function resetDemo() {
+  localStorage.removeItem(STORAGE_KEY)
+  state = createSeedState()
+  persist()
+  listeners.forEach((l) => l())
+}
+
+/* ---------- materials ---------- */
+
+export function toggleSaved(materialId: string) {
+  const me = state.sessionUserId
+  if (!me) return
+  const current = state.saved[me] ?? []
+  const has = current.includes(materialId)
+  setState((s) => ({ ...s, saved: { ...s.saved, [me]: has ? current.filter((id) => id !== materialId) : [...current, materialId] } }))
+  toast(has ? 'Quitado de guardados' : 'Guardado en Mi actividad')
+}
+
+export type MaterialInput = Omit<Material, 'id' | 'ownerId' | 'status' | 'createdAt'>
+
+export function publishMaterial(input: MaterialInput) {
+  const me = state.sessionUserId!
+  const material: Material = { ...input, id: uid('m'), ownerId: me, status: 'Disponible', createdAt: Date.now() }
+  const others = state.users.filter((u) => u.baseRating && u.id !== me)
+  // Chosen now so a background notification can name the student before the event fires.
+  const buyer = others[Math.floor(Math.random() * others.length)]
+  const matches = state.savedSearches.filter((search) => search.userId !== me && matchesSearch(material, search))
+  setState((s) => ({
+    ...s,
+    materials: [material, ...s.materials],
+    notifications: [
+      ...s.notifications,
+      ...matches.map((search) => ({
+        id: uid('n'), userId: search.userId, at: Date.now(), read: false, link: `#/material/${material.id}`,
+        text: `Nuevo material para tu búsqueda “${search.query || search.category}”: ${material.title}`,
+      })),
+    ],
+    scheduled: buyer
+      ? [...s.scheduled, { id: uid('e'), kind: 'buyer-interest', dueAt: Date.now() + 25_000, materialId: material.id, ownerId: me, buyerId: buyer.id, conversationId: uid('c') } as ScheduledEvent]
+      : s.scheduled,
+  }))
+  return material.id
+}
+
+export function updateMaterial(id: string, input: MaterialInput) {
+  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, ...input } : m)) }))
+}
+
+export function setMaterialStatus(id: string, status: Material['status']) {
+  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, status } : m)) }))
+}
+
+export function deleteMaterial(id: string) {
+  setState((s) => ({
+    ...s,
+    materials: s.materials.filter((m) => m.id !== id),
+    conversations: s.conversations.filter((c) => c.materialId !== id),
+    agreements: s.agreements.filter((a) => a.materialId !== id),
+    scheduled: s.scheduled.filter((e) => !('materialId' in e) || e.materialId !== id),
+  }))
+}
+
+export function matchesSearch(material: Material, search: { query: string; category: string; mode: string }) {
+  const term = search.query.trim().toLocaleLowerCase()
+  return (
+    (!term || `${material.title} ${material.course} ${material.category}`.toLocaleLowerCase().includes(term)) &&
+    (search.category === 'Todos' || material.category === search.category) &&
+    (search.mode === 'Todos' || material.mode === search.mode)
+  )
+}
+
+export function saveSearch(search: { query: string; category: string; mode: string }) {
+  const me = state.sessionUserId!
+  setState((s) => ({ ...s, savedSearches: [...s.savedSearches, { ...search, id: uid('s'), userId: me, at: Date.now() }] }))
+  toast('Búsqueda guardada: te avisaremos cuando alguien publique algo así.')
+}
+
+export function deleteSavedSearch(id: string) {
+  setState((s) => ({ ...s, savedSearches: s.savedSearches.filter((x) => x.id !== id) }))
+}
+
+export function reportMaterial(materialId: string, reason: string, detail: string) {
+  const me = state.sessionUserId!
+  setState((s) => ({ ...s, reports: [...s.reports, { id: uid('r'), materialId, userId: me, reason, detail, at: Date.now() }] }))
+  toast('Gracias por avisar. La moderación revisará la publicación.')
+}
+
+/* ---------- conversations ---------- */
+
+export function openConversation(materialId: string, otherId?: string) {
+  const me = state.sessionUserId!
+  const material = materialById(state, materialId)!
+  const partner = otherId ?? material.ownerId
+  const existing = state.conversations.find((c) => c.materialId === materialId && c.participants.includes(me) && c.participants.includes(partner))
+  if (existing) return existing.id
+  const conversation: Conversation = { id: uid('c'), materialId, participants: [me, partner], messages: [], readAt: { [me]: Date.now() } }
+  setState((s) => ({ ...s, conversations: [...s.conversations, conversation] }))
+  return conversation.id
+}
+
+function pushMessage(s: State, conversationId: string, from: string, text: string): State {
+  return {
+    ...s,
+    conversations: s.conversations.map((c) =>
+      c.id === conversationId ? { ...c, messages: [...c.messages, { id: uid('msg'), from, text, at: Date.now() }] } : c,
+    ),
+  }
+}
+
+const isSimulated = (userId: string) => Boolean(userById(state, userId)?.baseRating)
+
+export function sendMessage(conversationId: string, text: string) {
+  const me = state.sessionUserId!
+  const conversation = state.conversations.find((c) => c.id === conversationId)
+  if (!conversation || !text.trim()) return
+  const other = conversation.participants.find((p) => p !== me)!
+  const material = materialById(state, conversation.materialId)!
+  setState((s) => {
+    let next = pushMessage(s, conversationId, me, text.trim())
+    next = { ...next, conversations: next.conversations.map((c) => (c.id === conversationId ? { ...c, readAt: { ...c.readAt, [me]: Date.now() } } : c)) }
+    if (isSimulated(other)) {
+      const reply = material.ownerId === other ? simulatedReply(text, material) : buyerReply(conversation)
+      next.scheduled = [...next.scheduled, { id: uid('e'), kind: 'reply', dueAt: Date.now() + 1800 + Math.random() * 1500, conversationId, from: other, text: reply }]
+    }
+    return next
+  })
+}
+
+function buyerReply(conversation: Conversation) {
+  const sent = conversation.messages.filter((m) => m.from !== state.sessionUserId).length
+  return sent < 2 ? '¡Genial! ¿Te parece mañana a las 12:30 en la biblioteca central?' : 'Perfecto, ahí nos vemos. ¡Gracias! 🙌'
+}
+
+export function markConversationRead(conversationId: string) {
+  const me = state.sessionUserId!
+  setState((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, readAt: { ...c.readAt, [me]: Date.now() } } : c)) }))
+}
+
+/* ---------- agreements ---------- */
+
+export function proposeAgreement(input: { materialId: string; place: string; date: string; time: string; note: string }) {
+  const me = state.sessionUserId!
+  const material = materialById(state, input.materialId)!
+  const conversationId = openConversation(input.materialId)
+  const agreement: Agreement = {
+    id: uid('a'), materialId: material.id, buyerId: me, sellerId: material.ownerId,
+    place: input.place, date: input.date, time: input.time, note: input.note.trim() || undefined,
+    status: 'Pendiente', createdAt: Date.now(), updatedAt: Date.now(),
+  }
+  setState((s) => {
+    let next = pushMessage(s, conversationId, me, `📍 Propuesta de entrega: ${input.place}, ${formatDate(input.date)} a las ${formatTime(input.time)}.${agreement.note ? ` Nota: ${agreement.note}` : ''}`)
+    next = { ...next, agreements: [...next.agreements, agreement] }
+    if (isSimulated(material.ownerId))
+      next.scheduled = [...next.scheduled, { id: uid('e'), kind: 'confirm-agreement', dueAt: Date.now() + 4000, agreementId: agreement.id }]
+    return next
+  })
+  return agreement.id
+}
+
+function updateAgreement(id: string, patch: Partial<Agreement>) {
+  setState((s) => ({ ...s, agreements: s.agreements.map((a) => (a.id === id ? { ...a, ...patch, updatedAt: Date.now() } : a)) }))
+}
+
+export function cancelAgreement(id: string) {
+  const agreement = state.agreements.find((a) => a.id === id)!
+  updateAgreement(id, { status: 'Cancelado' })
+  const material = materialById(state, agreement.materialId)
+  if (material?.status === 'Reservado') setMaterialStatus(material.id, 'Disponible')
+  toast('Acuerdo cancelado. Avisamos al otro estudiante.')
+}
+
+export function confirmReception(id: string) {
+  const agreement = state.agreements.find((a) => a.id === id)!
+  updateAgreement(id, { status: 'Completado' })
+  setMaterialStatus(agreement.materialId, 'Entregado')
+}
+
+export function rateAgreement(id: string, stars: number, comment: string) {
+  updateAgreement(id, { rating: { stars, comment: comment.trim(), at: Date.now() } })
+  toast('¡Gracias! Tu valoración ayuda a otros estudiantes.')
+}
+
+/* ---------- notifications ---------- */
+
+export function markNotificationsRead() {
+  const me = state.sessionUserId
+  setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.userId === me ? { ...n, read: true } : n)) }))
+}
+
+/* ---------- simulated events ---------- */
+
+export function processScheduled(now = Date.now()) {
+  const due = state.scheduled.filter((e) => e.dueAt <= now)
+  if (!due.length) return
+  setState((s) => {
+    let next: State = { ...s, scheduled: s.scheduled.filter((e) => e.dueAt > now) }
+    for (const event of due) next = applyEvent(next, event)
+    return next
+  })
+}
+
+type Notice = { userId: string; text: string; link: string }
+
+function interestedBuyer(s: State, event: Extract<ScheduledEvent, { kind: 'buyer-interest' }>) {
+  const chosen = event.buyerId && userById(s, event.buyerId)
+  if (chosen) return chosen
+  const candidates = s.users.filter((u) => u.baseRating && u.id !== event.ownerId)
+  return candidates[Math.floor(Math.random() * candidates.length)]
+}
+
+/** What the notification of a simulated event will say, or null if the event no longer applies. */
+export function eventNotice(s: State, event: ScheduledEvent): Notice | null {
+  if (event.kind === 'reply') {
+    const conversation = s.conversations.find((c) => c.id === event.conversationId)
+    if (!conversation) return null
+    const sender = userById(s, event.from)
+    return {
+      userId: conversation.participants.find((p) => p !== event.from)!,
+      link: `#/chat/${conversation.id}`,
+      text: `${sender?.name.split(' ')[0]} te respondió: “${event.text}”`,
+    }
+  }
+  if (event.kind === 'confirm-agreement') {
+    const agreement = s.agreements.find((a) => a.id === event.agreementId)
+    if (!agreement || agreement.status !== 'Pendiente') return null
+    const seller = userById(s, agreement.sellerId)
+    return { userId: agreement.buyerId, link: `#/acuerdo/${agreement.id}`, text: `${seller?.name.split(' ')[0]} confirmó la entrega en ${agreement.place}.` }
+  }
+  const material = s.materials.find((m) => m.id === event.materialId)
+  if (!material || material.status !== 'Disponible' || !event.conversationId) return null
+  const buyer = interestedBuyer(s, event)
+  return {
+    userId: event.ownerId,
+    link: `#/chat/${event.conversationId}`,
+    text: `${buyer.name.split(' ')[0]} está interesado/a en “${material.title}”.`,
+  }
+}
+
+/** Notifications made by an event share its id, so a background alert isn't repeated in the app. */
+export const noticeId = (event: ScheduledEvent) => `n-${event.id}`
+
+function applyEvent(s: State, event: ScheduledEvent): State {
+  // Events saved before conversation ids were chosen up front.
+  if (event.kind === 'buyer-interest' && !event.conversationId) event = { ...event, conversationId: uid('c') }
+  const notice = eventNotice(s, event)
+  if (!notice) return s
+  const withNotice = (next: State): State => ({
+    ...next,
+    notifications: [...next.notifications, { id: noticeId(event), read: false, at: Date.now(), ...notice }],
+  })
+  if (event.kind === 'reply') return withNotice(pushMessage(s, event.conversationId, event.from, event.text))
+  if (event.kind === 'confirm-agreement') {
+    const agreement = s.agreements.find((a) => a.id === event.agreementId)!
+    const conversation = s.conversations.find((c) => c.materialId === agreement.materialId && c.participants.includes(agreement.buyerId) && c.participants.includes(agreement.sellerId))
+    let next: State = {
+      ...s,
+      agreements: s.agreements.map((a) => (a.id === agreement.id ? { ...a, status: 'Confirmado', updatedAt: Date.now() } : a)),
+      materials: s.materials.map((m) => (m.id === agreement.materialId ? { ...m, status: 'Reservado' } : m)),
+    }
+    if (conversation) next = pushMessage(next, conversation.id, agreement.sellerId, '✅ ¡Confirmado! Nos vemos ahí. Llevaré el material.')
+    return withNotice(next)
+  }
+  const material = s.materials.find((m) => m.id === event.materialId)!
+  const buyer = interestedBuyer(s, event)
+  const text = material.mode === 'Donación'
+    ? `¡Hola! Me serviría mucho ${material.title}. ¿Aún lo estás donando?`
+    : `¡Hola! Me interesa ${material.title}. ¿Sigue disponible?`
+  const conversation: Conversation = {
+    id: event.conversationId!, materialId: material.id, participants: [buyer.id, event.ownerId], readAt: {},
+    messages: [{ id: uid('msg'), from: buyer.id, text, at: Date.now() }],
+  }
+  return withNotice({ ...s, conversations: [...s.conversations, conversation] })
+}
+
+/* ---------- formatting ---------- */
+
+export function formatDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+export function formatTime(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number)
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit' })
+}
+
+export function timeAgo(at: number) {
+  const diff = Math.max(0, Date.now() - at) / 1000
+  if (diff < 60) return 'ahora'
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`
+  const days = Math.floor(diff / 86400)
+  return days === 1 ? 'ayer' : `hace ${days} días`
+}
+
+export const priceLabel = (m: Pick<Material, 'mode' | 'price'>) => (m.mode === 'Venta' ? `S/ ${m.price}` : m.mode)
+
+export function toISODate(date: Date) {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}

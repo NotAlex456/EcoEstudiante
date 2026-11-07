@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EcoEstudiante</string>
+    <string name="title_activity_main">EcoEstudiante</string>
+    <string name="package_name">com.ecoestudiante.app</string>
+    <string name="custom_url_scheme">com.ecoestudiante.app</string>
+</resources>

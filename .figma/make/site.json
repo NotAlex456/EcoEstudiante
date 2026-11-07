@@ -1,0 +1,15 @@
+{
+  "title": "EcoEstudiante",
+  "language": "es",
+  "description": "Compra, intercambia o recibe materiales académicos de otros estudiantes de la UPSJB Chincha.",
+  "icons": {
+    "icon": "/icons/icon.svg"
+  },
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
