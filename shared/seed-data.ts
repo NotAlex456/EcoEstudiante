@@ -16,12 +16,12 @@ export type SeedUser = {
 }
 
 export const SEED_USERS: SeedUser[] = [
-  { id: 'u-maria', name: 'María Fernanda Quispe', email: 'maria.quispe@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 8, baseRating: 4.9, baseRatingCount: 14 },
-  { id: 'u-diego', name: 'Diego Salazar', email: 'diego.salazar@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 9, baseRating: 4.8, baseRatingCount: 9 },
-  { id: 'u-lucia', name: 'Lucía Mendoza', email: 'lucia.mendoza@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 10, baseRating: 5, baseRatingCount: 6 },
-  { id: 'u-jorge', name: 'Jorge Paredes', email: 'jorge.paredes@upsjb.edu.pe', career: 'Administración', cycle: 8, baseRating: 4.7, baseRatingCount: 11 },
-  { id: 'u-ana', name: 'Ana Torres', email: 'ana.torres@upsjb.edu.pe', career: 'Contabilidad', cycle: 9, baseRating: 4.9, baseRatingCount: 7 },
-  { id: 'u-carlos', name: 'Carlos Vela', email: 'carlos.vela@upsjb.edu.pe', career: 'Administración', cycle: 10, baseRating: 4.6, baseRatingCount: 5 },
+  { id: 'u-maria', name: 'María Fernanda Quispe', email: 'bot.maria.quispe@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 8, baseRating: 4.9, baseRatingCount: 14 },
+  { id: 'u-diego', name: 'Diego Salazar', email: 'bot.diego.salazar@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 9, baseRating: 4.8, baseRatingCount: 9 },
+  { id: 'u-lucia', name: 'Lucía Mendoza', email: 'bot.lucia.mendoza@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 10, baseRating: 5, baseRatingCount: 6 },
+  { id: 'u-jorge', name: 'Jorge Paredes', email: 'bot.jorge.paredes@upsjb.edu.pe', career: 'Administración', cycle: 8, baseRating: 4.7, baseRatingCount: 11 },
+  { id: 'u-ana', name: 'Ana Torres', email: 'bot.ana.torres@upsjb.edu.pe', career: 'Contabilidad', cycle: 9, baseRating: 4.9, baseRatingCount: 7 },
+  { id: 'u-carlos', name: 'Carlos Vela', email: 'bot.carlos.vela@upsjb.edu.pe', career: 'Administración', cycle: 10, baseRating: 4.6, baseRatingCount: 5 },
 ]
 
 export type SeedMaterial = {

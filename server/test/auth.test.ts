@@ -148,10 +148,15 @@ describe('auth', () => {
     expect(later.body.error.devCode).toMatch(/^\d{6}$/)
   })
 
+  it('un estudiante real con el mismo nombre que un bot puede registrarse', async () => {
+    await seed(prisma)
+    expect((await register()).status).toBe(201)
+  })
+
   it('un bot no puede iniciar sesión', async () => {
     await seed(prisma)
-    expect((await login('maria.quispe@upsjb.edu.pe', '')).status).toBe(400)
-    expect((await login('maria.quispe@upsjb.edu.pe', 'cualquiera1')).status).toBe(401)
+    expect((await login('bot.maria.quispe@upsjb.edu.pe', '')).status).toBe(400)
+    expect((await login('bot.maria.quispe@upsjb.edu.pe', 'cualquiera1')).status).toBe(401)
   })
 
   it('limita los intentos por minuto', async () => {

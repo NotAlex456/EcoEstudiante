@@ -5,6 +5,7 @@ import type { Agreement, Conversation, Material, ScheduledEvent, State, User } f
 
 const STORAGE_KEY = 'ecoestudiante:v1'
 import { INSTITUTIONAL_EMAIL } from '../../shared/constants'
+import { matchesSearch } from '../../shared/search'
 export { INSTITUTIONAL_EMAIL }
 
 export const uid = (prefix: string) =>
@@ -282,14 +283,7 @@ export function deleteMaterial(id: string) {
   }))
 }
 
-export function matchesSearch(material: Material, search: { query: string; category: string; mode: string }) {
-  const term = search.query.trim().toLocaleLowerCase()
-  return (
-    (!term || `${material.title} ${material.course} ${material.category}`.toLocaleLowerCase().includes(term)) &&
-    (search.category === 'Todos' || material.category === search.category) &&
-    (search.mode === 'Todos' || material.mode === search.mode)
-  )
-}
+export { matchesSearch }
 
 export function saveSearch(search: { query: string; category: string; mode: string }) {
   const me = state.sessionUserId!

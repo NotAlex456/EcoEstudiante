@@ -14,14 +14,29 @@ declare global {
 
 const unauthenticated = () => new AppError(401, 'UNAUTHENTICATED', 'Tu sesión expiró. Vuelve a ingresar.')
 
+/** Id de un usuario verificado según el encabezado Authorization, o null. */
+async function authenticatedUserId(header: string | undefined, secret: string) {
+  const [scheme, token] = (header ?? '').split(' ')
+  const userId = scheme === 'Bearer' && token ? verifyToken(token, secret) : null
+  const user = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, verified: true } }) : null
+  return user?.verified ? user.id : null
+}
+
 /** Exige `Authorization: Bearer <token>` de un usuario existente y verificado. */
 export function requireAuth(config: Config): RequestHandler {
   return async (req, _res, next) => {
-    const [scheme, token] = (req.headers.authorization ?? '').split(' ')
-    const userId = scheme === 'Bearer' && token ? verifyToken(token, config.jwtSecret) : null
-    const user = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, verified: true } }) : null
-    if (!user?.verified) return next(unauthenticated())
-    req.user = { id: user.id }
+    const id = await authenticatedUserId(req.headers.authorization, config.jwtSecret)
+    if (!id) return next(unauthenticated())
+    req.user = { id }
+    next()
+  }
+}
+
+/** Para rutas públicas: identifica al usuario si hay un token válido; si no, sigue como anónimo. */
+export function optionalAuth(config: Config): RequestHandler {
+  return async (req, _res, next) => {
+    const id = await authenticatedUserId(req.headers.authorization, config.jwtSecret)
+    if (id) req.user = { id }
     next()
   }
 }
