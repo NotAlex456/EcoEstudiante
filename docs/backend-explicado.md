@@ -229,7 +229,7 @@ erDiagram
 `BotJob` (tareas programadas de los bots) no se relaciona con las demás tablas: guarda en un campo JSON los ids que
 necesita.
 
-### 5.2 Las 14 tablas
+### 5.2 Las 15 tablas
 
 | Tabla | Qué guarda |
 |---|---|
@@ -247,6 +247,7 @@ necesita.
 | **Notification** | Historial de avisos de cada usuario |
 | **DeviceToken** | Identificadores de cada celular para enviarle push |
 | **BotJob** | Acciones programadas de los estudiantes simulados |
+| **Upload** | Quién subió cada foto: nadie puede usar ni borrar fotos ajenas |
 
 ### 5.3 Decisiones de diseño de la base de datos
 

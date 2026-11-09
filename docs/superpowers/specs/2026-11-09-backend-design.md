@@ -162,6 +162,8 @@ decimal. Reemplaza a `baseRating` y `baseRatingCount`.
 
 **BotJob**: `id`, `kind`, `payload` (JSON), `dueAt`, `doneAt?`, `createdAt`. Índice `(doneAt, dueAt)`.
 
+**Upload** (agregada en la etapa 2): `url` (PK), `uploaderId` → User, `createdAt`. Una publicación solo acepta fotos nuevas que subió su dueño y que no usa otra publicación; un archivo se borra del almacenamiento solo cuando ninguna `MaterialImage` lo usa.
+
 ### Borrado de materiales
 
 `DELETE /materials/:id` borra físicamente el material (con cascada a imágenes, guardados y reportes) **solo si no

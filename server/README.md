@@ -82,7 +82,7 @@ Abre una página en el navegador para ver y editar las tablas.
 ## Estructura
 
 ```
-prisma/schema.prisma    diseño de la base de datos (14 tablas)
+prisma/schema.prisma    diseño de la base de datos (15 tablas)
 prisma/migrations/      SQL que crea las tablas
 prisma/seed.ts          datos de ejemplo
 src/app.ts              arma Express: CORS, JSON, rutas y errores
