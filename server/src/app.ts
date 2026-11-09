@@ -2,10 +2,12 @@ import cors from 'cors'
 import express from 'express'
 import type { Config } from './config'
 import { errorHandler, notFound } from './errors'
+import { createMailer, type Mailer } from './integrations/mail'
 
-export type AppDeps = Record<string, never>
+export type AppDeps = { mailer: Mailer }
 
-export function createApp(config: Config, _deps: Partial<AppDeps> = {}) {
+export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
+  const { mailer = createMailer(config) } = deps
   const app = express()
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
