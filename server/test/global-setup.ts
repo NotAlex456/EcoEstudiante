@@ -20,6 +20,7 @@ export async function setup() {
     port: PORT,
     persistent: false,
     autoRehydrateSymlinks: true,
+    initdbFlags: ['--encoding=UTF8', '--locale=C'],
     onLog: () => {},
   })
   await pg.initialise()

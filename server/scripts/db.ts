@@ -17,6 +17,7 @@ const pg = new EmbeddedPostgres({
   port,
   persistent: true,
   autoRehydrateSymlinks: true,
+  initdbFlags: ['--encoding=UTF8', '--locale=C'],
   onLog: () => {},
 })
 

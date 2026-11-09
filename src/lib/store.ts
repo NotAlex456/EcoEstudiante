@@ -3,7 +3,8 @@ import { createSeedState, simulatedReply, STATE_VERSION } from './data'
 import type { Agreement, Conversation, Material, ScheduledEvent, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
-export const INSTITUTIONAL_EMAIL = /^[a-z0-9._-]+@upsjb\.edu\.pe$/i
+import { INSTITUTIONAL_EMAIL } from '../../shared/constants'
+export { INSTITUTIONAL_EMAIL }
 
 export const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
