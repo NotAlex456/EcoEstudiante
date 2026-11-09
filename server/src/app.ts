@@ -3,6 +3,7 @@ import express from 'express'
 import type { Config } from './config'
 import { errorHandler, notFound } from './errors'
 import { createMailer, type Mailer } from './integrations/mail'
+import { authRoutes } from './modules/auth/routes'
 
 export type AppDeps = { mailer: Mailer }
 
@@ -17,6 +18,8 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
   })
+
+  app.use('/api/auth', authRoutes({ config, mailer }))
 
   app.use((_req, _res, next) => next(notFound()))
   app.use(errorHandler)

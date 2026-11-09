@@ -1,3 +1,5 @@
+import type { Express } from 'express'
+import request from 'supertest'
 import { createApp, type AppDeps } from '../src/app'
 import type { Config } from '../src/config'
 
@@ -26,4 +28,22 @@ export async function resetDb() {
   if (!tables.length) return
   const list = tables.map((t) => `"public"."${t.tablename}"`).join(', ')
   await prisma.$executeRawUnsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`)
+}
+
+export const validRegistration = {
+  name: 'Ana Torres',
+  email: 'ana.torres@upsjb.edu.pe',
+  career: 'Contabilidad',
+  cycle: 3,
+  password: 'secreta123',
+}
+
+/** Registra y verifica un usuario (modo consola); devuelve su token y datos. */
+export async function registerAndVerify(app: Express, overrides: Partial<typeof validRegistration> = {}) {
+  const input = { ...validRegistration, ...overrides }
+  const reg = await request(app).post('/api/auth/register').send(input)
+  if (reg.status !== 201) throw new Error(`register ${reg.status}: ${JSON.stringify(reg.body)}`)
+  const ver = await request(app).post('/api/auth/verify').send({ userId: reg.body.userId, code: reg.body.devCode })
+  if (ver.status !== 200) throw new Error(`verify ${ver.status}: ${JSON.stringify(ver.body)}`)
+  return ver.body as { token: string; user: { id: string; name: string; email: string; career: string; cycle: number } }
 }
