@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { z } from 'zod'
 
 export type Config = {
@@ -13,6 +14,9 @@ export type Config = {
     from: string
   }
   botsEnabled: boolean
+  /** Carpeta de las fotos cuando no hay Cloudinary. */
+  uploadsDir: string
+  cloudinaryUrl?: string
 }
 
 const optional = z
@@ -32,6 +36,8 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: optional,
   SMTP_PASS: optional,
+  UPLOADS_DIR: optional,
+  CLOUDINARY_URL: optional,
   MAIL_FROM: z.string().default('EcoEstudiante <no-reply@ecoestudiante.app>'),
   BOTS_ENABLED: z
     .string()
@@ -63,5 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       from: e.MAIL_FROM,
     },
     botsEnabled: e.BOTS_ENABLED,
+    uploadsDir: path.resolve(e.UPLOADS_DIR ?? path.join(import.meta.dirname, '..', 'uploads')),
+    cloudinaryUrl: e.CLOUDINARY_URL,
   }
 }

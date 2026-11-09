@@ -1,4 +1,6 @@
 import type { Express } from 'express'
+import os from 'node:os'
+import path from 'node:path'
 import request from 'supertest'
 import { createApp, type AppDeps } from '../src/app'
 import type { Config } from '../src/config'
@@ -13,6 +15,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     authRateLimit: 1000,
     mail: { from: 'test@eco' },
     botsEnabled: false,
+    uploadsDir: path.join(os.tmpdir(), 'eco-test-uploads'),
     ...overrides,
   }
 }
