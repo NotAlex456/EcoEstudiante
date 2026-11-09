@@ -75,3 +75,28 @@ describe('búsquedas guardadas', () => {
     expect((await request(app).get('/api/saved-searches').set(auth(ana.token))).body).toEqual([])
   })
 })
+
+describe('materiales pausados en guardados y reportes', () => {
+  const pause = () => prisma.material.update({ where: { id: 'm-1' }, data: { status: 'Pausado' } })
+
+  it('un material pausado ajeno no aparece en mis guardados ni se puede guardar', async () => {
+    await request(app).put('/api/saved/m-1').set(auth(ana.token))
+    await pause()
+    expect((await request(app).get('/api/saved').set(auth(ana.token))).body).toEqual([])
+    expect((await request(app).put('/api/saved/m-1').set(auth(beto.token))).status).toBe(404)
+  })
+
+  it('el dueño sí ve su material pausado en sus guardados', async () => {
+    const me = await prisma.user.findFirstOrThrow({ where: { email: 'ana.torres@upsjb.edu.pe' } })
+    await prisma.material.update({ where: { id: 'm-1' }, data: { ownerId: me.id } })
+    await request(app).put('/api/saved/m-1').set(auth(ana.token))
+    await pause()
+    expect((await request(app).get('/api/saved').set(auth(ana.token))).body.map((m: { id: string }) => m.id)).toEqual(['m-1'])
+  })
+
+  it('reportar un material pausado ajeno responde 404', async () => {
+    await pause()
+    const res = await request(app).post('/api/reports').set(auth(ana.token)).send({ materialId: 'm-1', reason: 'Otro motivo', detail: '' })
+    expect(res.status).toBe(404)
+  })
+})

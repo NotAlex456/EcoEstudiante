@@ -30,7 +30,17 @@ export const validMaterial = {
 }
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` })
-const create = (token: string, body: object = validMaterial) => request(app).post('/api/materials').set(auth(token)).send(body)
+type Who = { token: string; user: { id: string } }
+let counter = 0
+/** Registra las URLs como subidas por `who` (lo que hace POST /uploads). */
+const own = (who: Who, urls: unknown) =>
+  prisma.upload.createMany({ data: (Array.isArray(urls) ? urls : []).map((url) => ({ url, uploaderId: who.user.id })), skipDuplicates: true })
+/** Publica como `who`. Con el material por defecto usa una foto nueva cada vez. */
+const create = async (who: Who, body: Record<string, unknown> = validMaterial) => {
+  const payload = body === validMaterial ? { ...validMaterial, images: [`https://img.test/f${++counter}.jpg`] } : body
+  await own(who, payload.images)
+  return request(app).post('/api/materials').set(auth(who.token)).send(payload)
+}
 const list = (query = '') => request(app).get(`/api/materials${query}`)
 
 let ana: { token: string; user: { id: string } }
@@ -45,7 +55,7 @@ describe('materiales: crear, listar y ver', () => {
   })
 
   it('publica con las etiquetas de la app y el dueño del token', async () => {
-    const res = await create(ana.token, { ...validMaterial, mode: 'Donación', price: 15, condition: 'Como nuevo' })
+    const res = await create(ana, { ...validMaterial, mode: 'Donación', price: 15, condition: 'Como nuevo' })
     expect(res.status).toBe(201)
     expect(res.body).toMatchObject({
       mode: 'Donación',
@@ -61,24 +71,24 @@ describe('materiales: crear, listar y ver', () => {
 
   it('valida el precio de venta', async () => {
     for (const price of [0, 1001]) {
-      const res = await create(ana.token, { ...validMaterial, price })
+      const res = await create(ana, { ...validMaterial, price })
       expect(res.status).toBe(400)
       expect(res.body.error.fields.price).toBe('El precio de venta va de S/ 1 a S/ 1000.')
     }
   })
 
   it('solo acepta fotos subidas desde la app, entre 1 y 5', async () => {
-    const res = await create(ana.token, { ...validMaterial, images: ['https://evil.pe/x.jpg'] })
+    const res = await create(ana, { ...validMaterial, images: ['https://evil.pe/x.jpg'] })
     expect(res.status).toBe(400)
     expect(res.body.error.fields.images).toBe('Usa fotos subidas desde la app.')
-    expect((await create(ana.token, { ...validMaterial, images: [] })).status).toBe(400)
-    expect((await create(ana.token, { ...validMaterial, images: Array(6).fill('https://img.test/a.jpg') })).status).toBe(400)
+    expect((await create(ana, { ...validMaterial, images: [] })).status).toBe(400)
+    expect((await create(ana, { ...validMaterial, images: Array(6).fill('https://img.test/a.jpg') })).status).toBe(400)
   })
 
   it('exige sesión y rechaza campos que no se pueden elegir', async () => {
     expect((await request(app).post('/api/materials').send(validMaterial)).status).toBe(401)
-    expect((await create(ana.token, { ...validMaterial, ownerId: beto.user.id })).status).toBe(400)
-    expect((await create(ana.token, { ...validMaterial, status: 'Entregado' })).status).toBe(400)
+    expect((await create(ana, { ...validMaterial, ownerId: beto.user.id })).status).toBe(400)
+    expect((await create(ana, { ...validMaterial, status: 'Entregado' })).status).toBe(400)
   })
 
   it('lista los materiales disponibles y reservados con su dueño', async () => {
@@ -130,7 +140,7 @@ describe('materiales: crear, listar y ver', () => {
   })
 
   it('un material pausado solo lo ve su dueño', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     await prisma.material.update({ where: { id: body.id }, data: { status: 'Pausado' } })
     expect((await request(app).get(`/api/materials/${body.id}`).set(auth(ana.token))).status).toBe(200)
     const other = await request(app).get(`/api/materials/${body.id}`).set(auth(beto.token))
@@ -141,7 +151,7 @@ describe('materiales: crear, listar y ver', () => {
   })
 
   it('un material eliminado solo lo ven quienes tenían chat sobre él', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     await prisma.conversation.create({ data: { materialId: body.id, buyerId: beto.user.id, sellerId: ana.user.id } })
     await prisma.material.update({ where: { id: body.id }, data: { status: 'Eliminado' } })
     const carla = await registerAndVerify(app, { email: 'carla.diaz@upsjb.edu.pe' })
@@ -150,7 +160,7 @@ describe('materiales: crear, listar y ver', () => {
   })
 
   it('un token inválido en una ruta pública se trata como anónimo', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     expect((await request(app).get(`/api/materials/${body.id}`).set({ Authorization: 'Bearer basura' })).status).toBe(200)
   })
 
@@ -158,7 +168,7 @@ describe('materiales: crear, listar y ver', () => {
     await prisma.savedSearch.create({ data: { userId: beto.user.id, query: 'casio', category: 'Todos', mode: 'Todos' } })
     await prisma.savedSearch.create({ data: { userId: beto.user.id, query: '', category: 'Libros', mode: 'Todos' } })
     await prisma.savedSearch.create({ data: { userId: ana.user.id, query: 'casio', category: 'Todos', mode: 'Todos' } })
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     const notes = await prisma.notification.findMany({ where: { category: 'busquedas' } })
     expect(notes).toHaveLength(1)
     expect(notes[0]).toMatchObject({
@@ -177,14 +187,17 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
     beto = await registerAndVerify(app, { email: 'beto.rojas@upsjb.edu.pe', name: 'Beto Rojas' })
   })
 
-  const edit = (token: string, id: string, body: object) => request(app).patch(`/api/materials/${id}`).set(auth(token)).send(body)
+  const edit = async (who: Who, id: string, body: Record<string, unknown>) => {
+    await own(who, body.images)
+    return request(app).patch(`/api/materials/${id}`).set(auth(who.token)).send(body)
+  }
   const setStatus = (token: string, id: string, status: string) =>
     request(app).patch(`/api/materials/${id}/status`).set(auth(token)).send({ status })
   const remove = (token: string, id: string) => request(app).delete(`/api/materials/${id}`).set(auth(token))
 
   it('el dueño edita datos y fotos; la foto quitada se borra del almacenamiento', async () => {
-    const { body } = await create(ana.token, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
-    const res = await edit(ana.token, body.id, { ...validMaterial, title: 'Casio fx-570 (rebajada)', images: ['https://img.test/b.jpg', 'https://img.test/c.jpg'] })
+    const { body } = await create(ana, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
+    const res = await edit(ana, body.id, { ...validMaterial, title: 'Casio fx-570 (rebajada)', images: ['https://img.test/b.jpg', 'https://img.test/c.jpg'] })
     expect(res.status).toBe(200)
     expect(res.body).toMatchObject({ title: 'Casio fx-570 (rebajada)', images: ['https://img.test/b.jpg', 'https://img.test/c.jpg'] })
     expect(removed).toEqual(['https://img.test/a.jpg'])
@@ -195,17 +208,17 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
     const maria = await prisma.material.findUniqueOrThrow({ where: { id: 'm-1' }, include: { images: true } })
     await prisma.material.update({ where: { id: 'm-1' }, data: { ownerId: ana.user.id } })
     const keep = maria.images.map((i) => i.url)
-    const res = await edit(ana.token, 'm-1', { ...validMaterial, images: keep })
+    const res = await edit(ana, 'm-1', { ...validMaterial, images: keep })
     expect(res.status).toBe(200)
     expect(res.body.images).toEqual(keep)
-    expect((await edit(ana.token, 'm-1', { ...validMaterial, images: ['https://evil.pe/x.jpg'] })).status).toBe(400)
+    expect((await edit(ana, 'm-1', { ...validMaterial, images: ['https://evil.pe/x.jpg'] })).status).toBe(400)
   })
 
   it('otra persona no puede editar, cambiar el estado ni borrar', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     const expected = { code: 'FORBIDDEN', message: 'Solo quien publicó puede modificar este material.' }
     for (const res of [
-      await edit(beto.token, body.id, { ...validMaterial, title: 'Robada robada' }),
+      await edit(beto, body.id, { ...validMaterial, title: 'Robada robada' }),
       await setStatus(beto.token, body.id, 'Pausado'),
       await remove(beto.token, body.id),
     ]) {
@@ -217,7 +230,7 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
   })
 
   it('solo permite las transiciones de estado previstas', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     expect((await setStatus(ana.token, body.id, 'Pausado')).body.status).toBe('Pausado')
     expect((await setStatus(ana.token, body.id, 'Disponible')).body.status).toBe('Disponible')
     expect((await setStatus(ana.token, body.id, 'Entregado')).body.status).toBe('Entregado')
@@ -225,7 +238,7 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
     expect(back.status).toBe(409)
     expect(back.body.error).toEqual({ code: 'INVALID_TRANSITION', message: 'No se puede cambiar la publicación a ese estado.' })
 
-    const other = await create(ana.token)
+    const other = await create(ana)
     await prisma.material.update({ where: { id: other.body.id }, data: { status: 'Reservado' } })
     expect((await setStatus(ana.token, other.body.id, 'Pausado')).status).toBe(409)
     expect((await setStatus(ana.token, other.body.id, 'Entregado')).status).toBe(200)
@@ -233,7 +246,7 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
   })
 
   it('borrar sin chats elimina la fila y sus fotos (salvo las sembradas)', async () => {
-    const { body } = await create(ana.token, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
+    const { body } = await create(ana, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
     expect((await remove(ana.token, body.id)).status).toBe(204)
     expect(await prisma.material.findUnique({ where: { id: body.id } })).toBeNull()
     expect(removed.sort()).toEqual(['https://img.test/a.jpg', 'https://img.test/b.jpg'])
@@ -241,7 +254,7 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
   })
 
   it('borrar con chats lo marca Eliminado, lo oculta y cancela sus acuerdos activos', async () => {
-    const { body } = await create(ana.token)
+    const { body } = await create(ana)
     await prisma.conversation.create({ data: { materialId: body.id, buyerId: beto.user.id, sellerId: ana.user.id } })
     const agreement = await prisma.agreement.create({
       data: { materialId: body.id, buyerId: beto.user.id, sellerId: ana.user.id, place: 'Biblioteca central', date: '2026-12-01', time: '12:00' },
@@ -252,16 +265,60 @@ describe('materiales: editar, estado, borrar y mis publicaciones', () => {
     expect((await list()).body.items.map((m: { id: string }) => m.id)).not.toContain(body.id)
     const mine = await request(app).get('/api/users/me/materials').set(auth(ana.token))
     expect(mine.body.map((m: { id: string }) => m.id)).not.toContain(body.id)
-    expect((await edit(ana.token, body.id, validMaterial)).status).toBe(404)
+    expect((await edit(ana, body.id, validMaterial)).status).toBe(404)
   })
 
   it('mis publicaciones incluye las pausadas y no las ajenas', async () => {
-    const mine = await create(ana.token)
+    const mine = await create(ana)
     await setStatus(ana.token, mine.body.id, 'Pausado')
-    await create(beto.token)
+    await create(beto)
     const res = await request(app).get('/api/users/me/materials').set(auth(ana.token))
     expect(res.status).toBe(200)
     expect(res.body.map((m: { id: string; status: string }) => [m.id, m.status])).toEqual([[mine.body.id, 'Pausado']])
     expect((await request(app).get('/api/users/me/materials')).status).toBe(401)
+  })
+})
+
+describe('fotos: solo las propias y sin borrar las que otra publicación usa', () => {
+  beforeEach(async () => {
+    await resetDb()
+    removed.length = 0
+    ana = await registerAndVerify(app)
+    beto = await registerAndVerify(app, { email: 'beto.rojas@upsjb.edu.pe', name: 'Beto Rojas' })
+  })
+
+  const post = (who: Who, images: string[]) =>
+    request(app).post('/api/materials').set(auth(who.token)).send({ ...validMaterial, images })
+
+  it('no acepta una foto que subió otra persona', async () => {
+    await own(ana, ['https://img.test/de-ana.jpg'])
+    const res = await post(beto, ['https://img.test/de-ana.jpg'])
+    expect(res.status).toBe(400)
+    expect(res.body.error.fields.images).toBe('Usa fotos subidas desde la app.')
+  })
+
+  it('no acepta una foto subida que nadie registró', async () => {
+    expect((await post(ana, ['https://img.test/huerfana.jpg'])).status).toBe(400)
+  })
+
+  it('no acepta reutilizar una foto que ya usa otra publicación', async () => {
+    await own(ana, ['https://img.test/u.jpg'])
+    expect((await post(ana, ['https://img.test/u.jpg'])).status).toBe(201)
+    expect((await post(ana, ['https://img.test/u.jpg'])).status).toBe(400)
+  })
+
+  it('al borrar no elimina el archivo si otra publicación sigue usando esa foto', async () => {
+    await own(ana, ['https://img.test/u.jpg'])
+    const first = await post(ana, ['https://img.test/u.jpg'])
+    const other = await prisma.material.create({
+      data: {
+        ownerId: beto.user.id, title: 'Otra', course: 'C', career: 'Derecho', cycle: 1, category: 'Libros',
+        mode: 'Donacion', condition: 'Usado', description: 'x'.repeat(20),
+        images: { create: [{ url: 'https://img.test/u.jpg', publicId: 'u', position: 0 }] },
+      },
+    })
+    expect((await request(app).delete(`/api/materials/${first.body.id}`).set(auth(ana.token))).status).toBe(204)
+    expect(removed).toEqual([])
+    expect(other.id).toBeTruthy()
   })
 })

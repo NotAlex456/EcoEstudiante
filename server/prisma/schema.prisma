@@ -84,6 +84,7 @@ model User {
   reviewsReceived   Review[]       @relation("ReviewTarget")
   notifications     Notification[]
   deviceTokens      DeviceToken[]
+  uploads           Upload[]
 }
 
 /// Código de verificación de correo (solo se guarda su hash).
@@ -277,6 +278,17 @@ model DeviceToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Foto subida con POST /uploads: registra quién la subió, para que nadie use (ni borre) fotos ajenas.
+model Upload {
+  url        String   @id
+  uploaderId String
+  createdAt  DateTime @default(now())
+
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([uploaderId])
 }
 
 /// Acción programada de un estudiante simulado.

@@ -3,7 +3,8 @@ import multer from 'multer'
 import type { Config } from '../../config'
 import { AppError } from '../../errors'
 import { detectImageMime, type ImageStorage } from '../../integrations/images'
-import { requireAuth } from '../../middleware/auth'
+import { prisma } from '../../db'
+import { currentUserId, requireAuth } from '../../middleware/auth'
 
 const MAX_FILES = 5
 const MAX_BYTES = 2 * 1024 * 1024
@@ -24,7 +25,8 @@ const receiveFiles: RequestHandler = (req, res, next) => {
         )
       return next(new AppError(400, 'VALIDATION', 'Revisa los archivos enviados.'))
     }
-    next(error)
+    // Errores de busboy/multer por un cuerpo mal formado (sin boundary, cortado…): son del cliente.
+    next(new AppError(400, 'VALIDATION', 'Revisa los archivos enviados.'))
   })
 }
 
@@ -42,6 +44,8 @@ export function uploadRoutes(config: Config, images: ImageStorage) {
     })
     const urls: string[] = []
     for (const file of checked) urls.push(await images.save(file))
+    // Se registra quién subió cada foto: solo esa persona podrá usarla en una publicación.
+    await prisma.upload.createMany({ data: urls.map((url) => ({ url, uploaderId: currentUserId(req) })) })
     res.status(201).json({ urls })
   })
 

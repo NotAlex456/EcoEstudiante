@@ -53,6 +53,9 @@ describe('POST /api/uploads', () => {
     expect(res.body.urls).toHaveLength(2)
     for (const url of res.body.urls) expect(url).toMatch(/^http:\/\/localhost:3000\/uploads\/[\w-]+\.(jpg|png)$/)
     expect(fs.readdirSync(dir)).toHaveLength(2)
+    const { prisma } = await import('../src/db')
+    const uploads = await prisma.upload.findMany()
+    expect(uploads.map((u) => u.url).sort()).toEqual([...res.body.urls].sort())
     const served = await request(app).get(new URL(res.body.urls[0]).pathname)
     expect(served.status).toBe(200)
     expect(Buffer.compare(served.body, jpg)).toBe(0)
@@ -79,6 +82,21 @@ describe('POST /api/uploads', () => {
     const res = await upload(Array.from({ length: 6 }, (_, i) => ({ buffer: jpg, name: `${i}.jpg`, type: 'image/jpeg' })))
     expect(res.status).toBe(400)
     expect(res.body.error).toEqual({ code: 'TOO_MANY_FILES', message: 'Puedes subir hasta 5 fotos.' })
+  })
+
+  it('un multipart mal formado responde 400, no 500', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const post = (contentType: string, payload: string) =>
+      request(app).post('/api/uploads').set('Authorization', `Bearer ${token}`).set('Content-Type', contentType).send(payload)
+    const noBoundary = await post('multipart/form-data', 'hola')
+    expect(noBoundary.status).toBe(400)
+    expect(noBoundary.body.error.code).toBe('VALIDATION')
+    const truncated = await post(
+      'multipart/form-data; boundary=XYZ',
+      '--XYZ\r\nContent-Disposition: form-data; name="files"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\nabc',
+    )
+    expect(truncated.status).toBe(400)
+    expect(truncated.body.error.code).toBe('VALIDATION')
   })
 
   it('exige al menos un archivo y sesión', async () => {

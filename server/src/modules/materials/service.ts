@@ -15,9 +15,29 @@ export const materialNotFound = () => new AppError(404, 'MATERIAL_NOT_FOUND', 'E
 const badImages = () =>
   new AppError(400, 'VALIDATION', 'Revisa los datos enviados.', { fields: { images: 'Usa fotos subidas desde la app.' } })
 
-/** Las fotos deben ser del almacenamiento propio o fotos que el material ya tenía. */
-function checkImages(urls: string[], images: ImageStorage, existing: string[] = []) {
-  if (urls.some((url) => !images.owns(url) && !existing.includes(url))) throw badImages()
+/**
+ * Cada foto nueva debe ser de nuestro almacenamiento, haberla subido ESTE usuario y no estar
+ * en otra publicación. Las fotos que el material ya tenía se pueden conservar.
+ */
+async function checkImages(userId: string, urls: string[], images: ImageStorage, existing: string[] = []) {
+  const fresh = [...new Set(urls.filter((url) => !existing.includes(url)))]
+  if (fresh.length !== urls.filter((url) => !existing.includes(url)).length) throw badImages()
+  if (!fresh.length) return
+  if (fresh.some((url) => !images.owns(url))) throw badImages()
+  const [mine, inUse] = await Promise.all([
+    prisma.upload.count({ where: { url: { in: fresh }, uploaderId: userId } }),
+    prisma.materialImage.count({ where: { url: { in: fresh } } }),
+  ])
+  if (mine !== fresh.length || inUse > 0) throw badImages()
+}
+
+/** Borra del almacenamiento las fotos que ya ninguna publicación usa. */
+async function removeUnused(urls: string[], images: ImageStorage) {
+  for (const url of new Set(urls)) {
+    if (await prisma.materialImage.count({ where: { url } })) continue
+    await prisma.upload.deleteMany({ where: { url } })
+    await images.remove(url)
+  }
 }
 
 const dataFrom = (input: MaterialInput) => ({
@@ -78,7 +98,7 @@ export async function getVisible(id: string, viewerId?: string): Promise<Materia
 }
 
 export async function create(ownerId: string, input: MaterialInput, images: ImageStorage): Promise<MaterialDto> {
-  checkImages(input.images, images)
+  await checkImages(ownerId, input.images, images)
   const material = await prisma.material.create({
     data: {
       ...dataFrom(input),
@@ -120,7 +140,7 @@ async function ownedMaterial(id: string, userId: string) {
 export async function update(id: string, userId: string, input: MaterialInput, images: ImageStorage): Promise<MaterialDto> {
   const current = await ownedMaterial(id, userId)
   const previous = current.images.map((i) => i.url)
-  checkImages(input.images, images, previous)
+  await checkImages(userId, input.images, images, previous)
   const material = await prisma.$transaction(async (tx) => {
     await tx.materialImage.deleteMany({ where: { materialId: id } })
     return tx.material.update({
@@ -132,7 +152,7 @@ export async function update(id: string, userId: string, input: MaterialInput, i
       include: materialInclude,
     })
   })
-  await Promise.all(previous.filter((url) => !input.images.includes(url)).map((url) => images.remove(url)))
+  await removeUnused(previous.filter((url) => !input.images.includes(url)), images)
   return toMaterialDto(material)
 }
 
@@ -163,6 +183,7 @@ export async function remove(id: string, userId: string, images: ImageStorage) {
   if (conversations || agreements) {
     await prisma.$transaction([
       prisma.material.update({ where: { id }, data: { status: 'Eliminado' } }),
+      prisma.materialImage.deleteMany({ where: { materialId: id } }),
       prisma.agreement.updateMany({
         where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } },
         data: { status: 'Cancelado' },
@@ -171,7 +192,7 @@ export async function remove(id: string, userId: string, images: ImageStorage) {
   } else {
     await prisma.material.delete({ where: { id } })
   }
-  await Promise.all(current.images.map((i) => images.remove(i.url)))
+  await removeUnused(current.images.map((i) => i.url), images)
 }
 
 export async function listMine(userId: string): Promise<MaterialDto[]> {

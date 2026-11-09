@@ -19,7 +19,8 @@ const reportSchema = z
 /** Guarda la denuncia (una por usuario y material). La moderación las revisa fuera de la app. */
 async function report(userId: string, input: z.infer<typeof reportSchema>) {
   const material = await prisma.material.findUnique({ where: { id: input.materialId }, select: { ownerId: true, status: true } })
-  if (!material || material.status === 'Eliminado') throw materialNotFound()
+  if (!material || material.status === 'Eliminado' || (material.status === 'Pausado' && material.ownerId !== userId))
+    throw materialNotFound()
   if (material.ownerId === userId) throw new AppError(400, 'OWN_MATERIAL', 'No puedes reportar tu propia publicación.')
   const existing = await prisma.report.findFirst({ where: { userId, materialId: input.materialId } })
   if (existing) return false

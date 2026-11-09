@@ -9,7 +9,11 @@ export type SavedSearchDto = { id: string; query: string; category: string; mode
 
 export async function listSaved(userId: string): Promise<MaterialDto[]> {
   const rows = await prisma.savedMaterial.findMany({
-    where: { userId, material: { status: { not: 'Eliminado' } } },
+    // Pausados ajenos no se muestran (igual que en GET /materials/:id).
+    where: {
+      userId,
+      material: { OR: [{ status: { notIn: ['Pausado', 'Eliminado'] } }, { status: 'Pausado', ownerId: userId }] },
+    },
     include: { material: { include: materialInclude } },
     orderBy: { createdAt: 'desc' },
   })
@@ -17,8 +21,9 @@ export async function listSaved(userId: string): Promise<MaterialDto[]> {
 }
 
 export async function save(userId: string, materialId: string) {
-  const material = await prisma.material.findUnique({ where: { id: materialId }, select: { status: true } })
-  if (!material || material.status === 'Eliminado') throw materialNotFound()
+  const material = await prisma.material.findUnique({ where: { id: materialId }, select: { status: true, ownerId: true } })
+  if (!material || material.status === 'Eliminado' || (material.status === 'Pausado' && material.ownerId !== userId))
+    throw materialNotFound()
   await prisma.savedMaterial.upsert({
     where: { userId_materialId: { userId, materialId } },
     update: {},
