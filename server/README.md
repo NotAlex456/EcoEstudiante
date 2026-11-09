@@ -68,7 +68,7 @@ Los servicios externos son opcionales: sin ellos el servidor funciona igual en m
 | Servicio | Variables | Sin configurar |
 |---|---|---|
 | Correo | `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
-| Fotos | `CLOUDINARY_URL` | Se guardan en `server/uploads/` (etapa 2) |
+| Fotos | `CLOUDINARY_URL` (en tu panel de Cloudinary: *Settings → API Keys → API environment variable*, con la forma `cloudinary://<key>:<secret>@<cloud>`) | Se guardan en `server/uploads/` y se sirven en `/uploads/…` |
 | Push | `FIREBASE_SERVICE_ACCOUNT` | No se envían notificaciones push (etapa 5) |
 
 ## Ver la base de datos

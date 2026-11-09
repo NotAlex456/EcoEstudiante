@@ -197,12 +197,12 @@ Base: `/api`. Formato JSON. 🔒 = requiere `Authorization: Bearer <token>`.
 | `GET /users/:id` | Perfil público: nombre, carrera, ciclo, reputación, reseñas recibidas y materiales disponibles |
 | `GET /materials` | Filtros: `q`, `category`, `mode`, `career`, `cycle`, `condition`, `maxPrice`, `page` (20 por página). Solo `Disponible` y `Reservado`. `q` busca en título, curso y categoría sin distinguir mayúsculas |
 | `GET /materials/:id` | Detalle con fotos, dueño y su reputación. Un material `Pausado` o `Eliminado` solo lo ve su dueño (o participantes de sus conversaciones, para `Eliminado`) |
-| `POST /materials` 🔒 | Crea con `images: [{url, publicId}]`. Programa un `buyer_interest` y avisa a las búsquedas guardadas que coincidan |
+| `POST /materials` 🔒 | Crea con `images: string[]` (URLs devueltas por `/uploads`; el servidor rechaza URLs ajenas y deduce el identificador de cada foto desde su URL). Avisa a las búsquedas guardadas que coincidan y, desde la etapa 4, programa un `buyer_interest` |
 | `PATCH /materials/:id` 🔒 | Edita (solo el dueño) |
-| `PATCH /materials/:id/status` 🔒 | `Disponible` ↔ `Pausado` (solo el dueño; `Reservado` y `Entregado` los fija el flujo de acuerdos) |
+| `PATCH /materials/:id/status` 🔒 | Solo el dueño: `Disponible` ↔ `Pausado`, y `Disponible` o `Reservado` → `Entregado` (entregas hechas fuera de la app). `Reservado` lo fija el flujo de acuerdos |
 | `DELETE /materials/:id` 🔒 | Ver §3, "Borrado de materiales" |
 | `GET /users/me/materials` 🔒 | Mis publicaciones en cualquier estado salvo `Eliminado` |
-| `POST /uploads` 🔒 | Multipart, campo `files`, máx. 5 archivos JPEG/PNG/WebP de 2 MB → `[{url, publicId}]` |
+| `POST /uploads` 🔒 | Multipart, campo `files`, máx. 5 archivos JPEG/PNG/WebP de 2 MB (tipo verificado por la firma de bytes) → `{ urls: string[] }` |
 | `GET /saved` 🔒 · `PUT /saved/:materialId` 🔒 · `DELETE /saved/:materialId` 🔒 | Materiales guardados |
 | `GET /saved-searches` 🔒 · `POST /saved-searches` 🔒 · `DELETE /saved-searches/:id` 🔒 | Alertas de búsqueda |
 | `GET /conversations` 🔒 | Mis conversaciones con material, otro participante, último mensaje y cantidad de no leídos, ordenadas por `lastMessageAt` |

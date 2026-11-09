@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** etapa 1 (base) construida: servidor, base de datos completa, registro con verificación de correo, inicio de sesión y perfiles. Las etapas 2 a 5 están pendientes (§10). Este documento se actualiza al terminar cada una.
+> **Estado:** etapas 1 (base) y 2 (materiales y fotos) construidas: servidor, base de datos, registro con verificación de correo, perfiles, publicaciones con fotos, búsqueda con filtros, guardados, alertas de búsqueda y reportes. Las etapas 3 a 5 están pendientes (§10). Este documento se actualiza al terminar cada una.
 
 ## Índice
 
@@ -314,7 +314,7 @@ Todas las rutas empiezan con `/api`. 🔒 indica que requieren sesión (token JW
 | | `PATCH /materials/:id/status` 🔒 | Pausar o reactivar |
 | | `DELETE /materials/:id` 🔒 | Eliminar |
 | | `GET /users/me/materials` 🔒 | Mis publicaciones |
-| Fotos | `POST /uploads` 🔒 | Subir hasta 5 fotos de 2 MB |
+| Fotos | `POST /uploads` 🔒 | Subir hasta 5 fotos de 2 MB; devuelve sus URLs |
 | Guardados | `GET/PUT/DELETE /saved…` 🔒 | Materiales guardados |
 | | `GET/POST/DELETE /saved-searches…` 🔒 | Alertas de búsqueda |
 | Chat | `GET /conversations` 🔒 | Mis chats con no leídos |
@@ -383,7 +383,7 @@ sequenceDiagram
 ### 7.2 Publicar un material
 
 1. La app **comprime** las fotos en el celular, como ya hacía.
-2. Las sube con `POST /uploads`. El servidor valida tipo y tamaño, las guarda en Cloudinary y devuelve sus URLs.
+2. Las sube con `POST /uploads`. El servidor comprueba el **tipo real** de cada archivo leyendo sus primeros bytes (no confía en el nombre ni en lo que dice el navegador) y su tamaño. Las guarda en Cloudinary (o en la carpeta `server/uploads/` si no hay Cloudinary) y devuelve sus URLs. Si una sola falla, no se guarda ninguna.
 3. La app envía `POST /materials` con los datos y las URLs.
 4. El servidor valida y guarda el material, y además:
    - avisa a los usuarios con una **búsqueda guardada** que coincida,
@@ -474,7 +474,9 @@ sobreviven a un reinicio del servidor.
 | Editar o leer lo ajeno | Cada servicio verifica que seas el dueño o participante (403 si no) |
 | Datos maliciosos | Validación **zod** estricta: tipos, longitudes y campos permitidos |
 | Inyección SQL | Prisma usa **consultas parametrizadas** |
-| Fotos peligrosas o enormes | Solo JPEG/PNG/WebP, máx. 2 MB y 5 por publicación |
+| Fotos peligrosas o enormes | Solo JPEG/PNG/WebP verificados por su firma de bytes, máx. 2 MB y 5 por publicación |
+| Usar fotos ajenas en una publicación | El servidor solo acepta URLs de su propio almacenamiento (o las que el material ya tenía) |
+| Ver publicaciones pausadas o eliminadas | Solo su dueño (y, si está eliminada, quienes tenían chat sobre ella); el resto recibe 404, como si no existiera |
 | Filtrar detalles internos | Los errores 500 no exponen nada; el detalle queda en el registro |
 | Claves en el código | Todas las claves van en variables de entorno, nunca en git |
 | Privacidad (Ley N.° 29733) | El correo no aparece en el perfil público; el teléfono nunca se pide |
