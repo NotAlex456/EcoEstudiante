@@ -1,5 +1,5 @@
 import request from 'supertest'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../src/config'
 import { makeApp } from './helpers'
 
@@ -20,6 +20,13 @@ describe('app', () => {
 
   it('JSON mal formado responde 400 VALIDATION', async () => {
     const res = await request(app).post('/api/health').set('Content-Type', 'application/json').send('{malo')
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('VALIDATION')
+  })
+
+  it('JSON con charset no soportado responde 400 VALIDATION, no 500', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await request(app).post('/api/health').set('Content-Type', 'application/json; charset=latin1').send('{}')
     expect(res.status).toBe(400)
     expect(res.body.error.code).toBe('VALIDATION')
   })

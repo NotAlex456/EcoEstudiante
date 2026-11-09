@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import type { Config } from '../../config'
@@ -38,7 +39,18 @@ async function issueCode(user: { id: string; email: string; name: string }, { ma
   return { sent: true as const, devCode: mailer.mode === 'console' ? code : undefined }
 }
 
-export async function register(input: RegisterInput, ctx: Ctx) {
+export async function register(input: RegisterInput, ctx: Ctx): Promise<{ userId: string; devCode?: string }> {
+  try {
+    return await registerOnce(input, ctx)
+  } catch (error) {
+    // Dos registros simultáneos del mismo correo nuevo: el segundo choca con el UNIQUE
+    // y se reintenta como "correo ya existente".
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return registerOnce(input, ctx)
+    throw error
+  }
+}
+
+async function registerOnce(input: RegisterInput, ctx: Ctx) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } })
   if (existing?.verified) throw new AppError(409, 'EMAIL_TAKEN', 'Ya existe una cuenta con este correo. Inicia sesión.')
   const data = {
@@ -63,28 +75,45 @@ export async function resendCode(userId: string, ctx: Ctx) {
   return { ok: true as const, devCode: issued.devCode }
 }
 
-export async function verify(input: { userId: string; code: string }, { config }: Ctx): Promise<{ token: string; user: MeDto }> {
+/**
+ * Verifica el correo. Exige el código Y la contraseña con la que se registró, para que
+ * alguien que re-registre el mismo correo no pueda quedarse con la cuenta de otra persona.
+ */
+export async function verify(
+  input: { userId: string; code: string; password: string },
+  { config }: Ctx,
+): Promise<{ token: string; user: MeDto }> {
   const user = await prisma.user.findUnique({ where: { id: input.userId } })
   const record = user && (await prisma.emailCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }))
   if (!user || user.verified || !record) throw invalidCode()
-  if (record.attempts >= MAX_ATTEMPTS) throw new AppError(429, 'TOO_MANY_ATTEMPTS', 'Demasiados intentos. Pide un código nuevo.')
   if (record.expiresAt.getTime() < Date.now()) throw new AppError(400, 'CODE_EXPIRED', 'El código venció. Pide uno nuevo.')
-  if (!sameHash(sha256(input.code), record.codeHash)) {
-    await prisma.emailCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } })
-    throw invalidCode()
-  }
-  const [verified] = await prisma.$transaction([
-    prisma.user.update({ where: { id: user.id }, data: { verified: true } }),
+
+  // Se reserva el intento de forma atómica ANTES de comparar: peticiones en paralelo no pasan de 5.
+  const claimed = await prisma.emailCode.updateMany({
+    where: { id: record.id, attempts: { lt: MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  })
+  if (!claimed.count) throw new AppError(429, 'TOO_MANY_ATTEMPTS', 'Demasiados intentos. Pide un código nuevo.')
+
+  const codeOk = sameHash(sha256(input.code), record.codeHash)
+  const passwordOk = await bcrypt.compare(input.password, user.passwordHash)
+  if (!codeOk || !passwordOk) throw invalidCode()
+
+  const [activated] = await prisma.$transaction([
+    prisma.user.updateMany({ where: { id: user.id, verified: false }, data: { verified: true } }),
     prisma.emailCode.deleteMany({ where: { userId: user.id } }),
-    prisma.notification.create({
+  ])
+  if (activated.count) {
+    await prisma.notification.create({
       data: {
         userId: user.id,
         category: 'cuenta',
         link: '#/cuenta',
         text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
       },
-    }),
-  ])
+    })
+  }
+  const verified = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
   return { token: signToken(verified.id, config.jwtSecret), user: toMe(verified) }
 }
 

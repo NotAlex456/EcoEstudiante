@@ -42,4 +42,13 @@ describe('mailer', () => {
       message: 'No pudimos enviar el correo. Inténtalo en un momento.',
     })
   })
+
+  it('escapa el HTML del nombre en el correo', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    const m = createMailer(testConfig({ mail: { resendApiKey: 're_x', from: 'x' } }), fetchImpl)
+    await m.sendVerificationCode('ana@upsjb.edu.pe', '<a/href=//evil.pe>Clic</a> Torres', '123456')
+    const sent = JSON.parse(fetchImpl.mock.calls[0][1].body)
+    expect(sent.html).not.toContain('<a/href')
+    expect(sent.html).toContain('&lt;a/href=//evil.pe&gt;Clic&lt;/a&gt;')
+  })
 })

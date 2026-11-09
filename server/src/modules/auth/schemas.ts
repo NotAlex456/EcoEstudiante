@@ -21,7 +21,9 @@ export const registerSchema = z
   })
   .strict()
 
-export const verifySchema = z.object({ userId: z.string().min(1), code: z.string().trim().min(1) }).strict()
+export const verifySchema = z
+  .object({ userId: z.string().min(1), code: z.string().trim().min(1), password: z.string().min(1, 'Escribe tu contraseña.') })
+  .strict()
 
 export const resendSchema = z.object({ userId: z.string().min(1) }).strict()
 

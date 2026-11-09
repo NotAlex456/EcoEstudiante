@@ -163,9 +163,10 @@ export async function resendCode(userId: string): Promise<Failure | { devCode?: 
   }
 }
 
-export async function verifyEmail(userId: string, code: string): Promise<Failure | { ok: true }> {
+/** El servidor exige la misma contraseña del registro junto con el código. */
+export async function verifyEmail(userId: string, code: string, password: string): Promise<Failure | { ok: true }> {
   try {
-    const { token, user } = await api<AuthResponse>('POST', '/auth/verify', { userId, code: code.trim() })
+    const { token, user } = await api<AuthResponse>('POST', '/auth/verify', { userId, code: code.trim(), password })
     setToken(token)
     adoptUser(user)
     welcome(user.id)

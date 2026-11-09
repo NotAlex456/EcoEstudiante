@@ -3,7 +3,10 @@ import { AppLogo, Button, Field, Icon } from '../components/ui'
 import { CAREERS, CYCLES } from '../lib/data'
 import { INSTITUTIONAL_EMAIL, login, register, resendCode, toast, verifyEmail } from '../lib/store'
 
-type Step = { kind: 'login' } | { kind: 'register' } | { kind: 'verify'; userId: string; email: string; devCode?: string }
+/** La contraseña viaja (solo en memoria) hasta la verificación, que la exige junto con el código. */
+type Pending = { userId: string; email: string; password: string; devCode?: string }
+type Step = { kind: 'login' } | { kind: 'register' } | ({ kind: 'verify' } & Pending)
+type OnVerify = (pending: Pending) => void
 
 export function Auth() {
   const [step, setStep] = useState<Step>({ kind: 'login' })
@@ -21,15 +24,15 @@ export function Auth() {
         </ul>
       </div>
       <div className="auth__card page-enter" key={step.kind}>
-        {step.kind === 'login' && <LoginForm onRegister={() => setStep({ kind: 'register' })} onVerify={(userId, email, devCode) => setStep({ kind: 'verify', userId, email, devCode })} />}
-        {step.kind === 'register' && <RegisterForm onLogin={() => setStep({ kind: 'login' })} onVerify={(userId, email, devCode) => setStep({ kind: 'verify', userId, email, devCode })} />}
+        {step.kind === 'login' && <LoginForm onRegister={() => setStep({ kind: 'register' })} onVerify={(pending) => setStep({ kind: 'verify', ...pending })} />}
+        {step.kind === 'register' && <RegisterForm onLogin={() => setStep({ kind: 'login' })} onVerify={(pending) => setStep({ kind: 'verify', ...pending })} />}
         {step.kind === 'verify' && <VerifyForm {...step} onBack={() => setStep({ kind: 'login' })} onResend={(devCode) => setStep({ ...step, devCode })} />}
       </div>
     </div>
   )
 }
 
-function LoginForm({ onRegister, onVerify }: { onRegister: () => void; onVerify: (userId: string, email: string, devCode?: string) => void }) {
+function LoginForm({ onRegister, onVerify }: { onRegister: () => void; onVerify: OnVerify }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -41,7 +44,7 @@ function LoginForm({ onRegister, onVerify }: { onRegister: () => void; onVerify:
     const result = await login(email, password)
     setBusy(false)
     if ('error' in result) setError(result.error)
-    else if ('needsVerification' in result) onVerify(result.userId, email.trim().toLowerCase(), result.devCode)
+    else if ('needsVerification' in result) onVerify({ userId: result.userId, email: email.trim().toLowerCase(), password, devCode: result.devCode })
   }
 
   return (
@@ -60,7 +63,7 @@ function LoginForm({ onRegister, onVerify }: { onRegister: () => void; onVerify:
   )
 }
 
-function RegisterForm({ onLogin, onVerify }: { onLogin: () => void; onVerify: (userId: string, email: string, devCode?: string) => void }) {
+function RegisterForm({ onLogin, onVerify }: { onLogin: () => void; onVerify: OnVerify }) {
   const [form, setForm] = useState({ name: '', email: '', career: CAREERS[0], cycle: 1, password: '', confirm: '', consent: false })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
@@ -83,7 +86,7 @@ function RegisterForm({ onLogin, onVerify }: { onLogin: () => void; onVerify: (u
     const result = await register(form)
     setBusy(false)
     if ('error' in result) setErrors({ [result.field ?? 'email']: result.error })
-    else onVerify(result.userId, form.email.trim().toLowerCase(), result.devCode)
+    else onVerify({ userId: result.userId, email: form.email.trim().toLowerCase(), password: form.password, devCode: result.devCode })
   }
 
   return (
@@ -123,7 +126,7 @@ function RegisterForm({ onLogin, onVerify }: { onLogin: () => void; onVerify: (u
   )
 }
 
-function VerifyForm({ userId, email, devCode, onBack, onResend }: { userId: string; email: string; devCode?: string; onBack: () => void; onResend: (devCode?: string) => void }) {
+function VerifyForm({ userId, email, password, devCode, onBack, onResend }: Pending & { onBack: () => void; onResend: (devCode?: string) => void }) {
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -131,7 +134,7 @@ function VerifyForm({ userId, email, devCode, onBack, onResend }: { userId: stri
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    const result = await verifyEmail(userId, value)
+    const result = await verifyEmail(userId, value, password)
     setBusy(false)
     if ('error' in result) setError(result.error)
   }
@@ -157,7 +160,7 @@ function VerifyForm({ userId, email, devCode, onBack, onResend }: { userId: stri
         <p className="auth__lead">Revisa también la carpeta de spam.</p>
       )}
       <Field label="Código de verificación" error={error}>
-        <input className="code-input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={value} onChange={(e) => { setValue(e.target.value.replace(/D/g, '')); setError('') }} placeholder="••••••" />
+        <input className="code-input" inputMode="numeric" autoComplete="one-time-code" value={value} onChange={(e) => { setValue(e.target.value.replace(/\D/g, '').slice(0, 6)); setError('') }} placeholder="••••••" />
       </Field>
       <Button type="submit" className="full-button" disabled={busy || value.length !== 6}>Verificar y entrar</Button>
       <p className="auth__switch">

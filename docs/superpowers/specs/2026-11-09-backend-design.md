@@ -189,7 +189,7 @@ Base: `/api`. Formato JSON. 🔒 = requiere `Authorization: Bearer <token>`.
 | Método y ruta | Descripción |
 |---|---|
 | `POST /auth/register` | `{name, email, career, cycle, password}` → crea usuario no verificado y envía el código. Responde `{userId}` |
-| `POST /auth/verify` | `{userId, code}` → verifica y responde `{token, user}`. Crea la notificación de bienvenida |
+| `POST /auth/verify` | `{userId, code, password}` → verifica y responde `{token, user}`. Exige la misma contraseña del registro, para que nadie que re-registre el correo se quede con la cuenta. Cada intento se reserva de forma atómica (máx. 5, aun en paralelo). Crea la notificación de bienvenida |
 | `POST /auth/resend-code` | `{userId}` → nuevo código |
 | `POST /auth/login` | `{email, password}` → `{token, user}` |
 | `GET /auth/me` 🔒 | Usuario actual con sus `notificationPrefs` |

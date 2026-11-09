@@ -43,7 +43,7 @@ export async function registerAndVerify(app: Express, overrides: Partial<typeof 
   const input = { ...validRegistration, ...overrides }
   const reg = await request(app).post('/api/auth/register').send(input)
   if (reg.status !== 201) throw new Error(`register ${reg.status}: ${JSON.stringify(reg.body)}`)
-  const ver = await request(app).post('/api/auth/verify').send({ userId: reg.body.userId, code: reg.body.devCode })
+  const ver = await request(app).post('/api/auth/verify').send({ userId: reg.body.userId, code: reg.body.devCode, password: input.password })
   if (ver.status !== 200) throw new Error(`verify ${ver.status}: ${JSON.stringify(ver.body)}`)
   return ver.body as { token: string; user: { id: string; name: string; email: string; career: string; cycle: number } }
 }

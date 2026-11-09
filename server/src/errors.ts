@@ -19,6 +19,8 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof AppError) error = err
   else if (err instanceof SyntaxError && 'body' in err) error = new AppError(400, 'VALIDATION', 'Revisa los datos enviados.')
   else if (err?.type === 'entity.too.large') error = new AppError(413, 'PAYLOAD_TOO_LARGE', 'Los datos enviados son demasiado grandes.')
+  // Otros errores del lector de JSON (charset o codificación no soportados): son del cliente.
+  else if (err?.expose && err.status >= 400 && err.status < 500) error = new AppError(400, 'VALIDATION', 'Revisa los datos enviados.')
   else {
     console.error(err)
     error = new AppError(500, 'INTERNAL', 'Ocurrió un error inesperado. Inténtalo de nuevo.')

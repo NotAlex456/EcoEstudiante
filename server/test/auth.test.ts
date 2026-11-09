@@ -9,7 +9,8 @@ vi.spyOn(console, 'log').mockImplementation(() => {})
 
 const app = makeApp()
 const register = (body: object = valid) => request(app).post('/api/auth/register').send(body)
-const verify = (userId: string, code: string) => request(app).post('/api/auth/verify').send({ userId, code })
+const verify = (userId: string, code: string, password = valid.password) =>
+  request(app).post('/api/auth/verify').send({ userId, code, password })
 const login = (email: string, password: string) => request(app).post('/api/auth/login').send({ email, password })
 const ageLastCode = (userId: string, seconds: number) =>
   prisma.emailCode.updateMany({ where: { userId }, data: { createdAt: new Date(Date.now() - seconds * 1000) } })
@@ -70,7 +71,7 @@ describe('auth', () => {
     const again = await register({ ...valid, name: 'Ana María Torres', password: 'otraclave9' })
     expect(again.status).toBe(201)
     expect(again.body.userId).toBe(first.body.userId)
-    await verify(again.body.userId, again.body.devCode)
+    await verify(again.body.userId, again.body.devCode, 'otraclave9')
     expect((await login(valid.email, 'otraclave9')).body.user.name).toBe('Ana María Torres')
   })
 
@@ -169,6 +170,46 @@ describe('auth', () => {
     expect(reg.body.devCode).toBeUndefined()
     expect(sent).toHaveLength(1)
     expect(sent[0].slice(0, 2)).toEqual([valid.email, valid.name])
-    expect((await request(withMailer).post('/api/auth/verify').send({ userId: reg.body.userId, code: sent[0][2] })).status).toBe(200)
+    expect((await request(withMailer).post('/api/auth/verify').send({ userId: reg.body.userId, code: sent[0][2], password: valid.password })).status).toBe(200)
+  })
+  it('rechaza dominios parecidos al institucional', async () => {
+    for (const email of ['ana@upsjbxedu.pe', 'ana@upsjb-edu.pe', 'ana@upsjb.eduxpe']) {
+      const res = await register({ ...valid, email })
+      expect(res.status, email).toBe(400)
+    }
+  })
+
+  it('verificar exige la contraseña del registro', async () => {
+    const reg = await register()
+    const res = await verify(reg.body.userId, reg.body.devCode, 'otraclave9')
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_CODE')
+    expect((await verify(reg.body.userId, reg.body.devCode)).status).toBe(200)
+  })
+
+  it('otra persona que re-registra el correo no puede quedarse con la cuenta', async () => {
+    const victim = await register()
+    await ageLastCode(victim.body.userId, 61)
+    const attacker = await register({ ...valid, password: 'atacante99' })
+    // La víctima recibe el código nuevo en su correo e intenta verificar con su contraseña.
+    const res = await verify(victim.body.userId, attacker.body.devCode, valid.password)
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_CODE')
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: victim.body.userId } })).verified).toBe(false)
+  })
+
+  it('intentos en paralelo no superan el límite de 5', async () => {
+    const reg = await register()
+    const wrong = otherCode(reg.body.devCode)
+    const results = await Promise.all(Array.from({ length: 10 }, () => verify(reg.body.userId, wrong)))
+    expect(results.filter((r) => r.body.error?.code === 'INVALID_CODE')).toHaveLength(5)
+    expect(results.filter((r) => r.status === 429)).toHaveLength(5)
+    expect((await verify(reg.body.userId, reg.body.devCode)).status).toBe(429)
+  })
+
+  it('dos registros simultáneos del mismo correo no dan error 500', async () => {
+    const results = await Promise.all([register(), register()])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 201])
+    expect(await prisma.user.count()).toBe(1)
   })
 })

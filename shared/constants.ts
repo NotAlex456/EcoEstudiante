@@ -40,4 +40,4 @@ export const COMMUNITY_RULES = [
 ]
 
 /** Correo institucional de la UPSJB. */
-export const INSTITUTIONAL_EMAIL = /^[a-z0-9._-]+@upsjb.edu.pe$/i
+export const INSTITUTIONAL_EMAIL = /^[a-z0-9._-]+@upsjb\.edu\.pe$/i

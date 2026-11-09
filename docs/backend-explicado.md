@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** diseño aprobado. La construcción avanza por etapas (§10). Este documento se actualiza al terminar cada una.
+> **Estado:** etapa 1 (base) construida: servidor, base de datos completa, registro con verificación de correo, inicio de sesión y perfiles. Las etapas 2 a 5 están pendientes (§10). Este documento se actualiza al terminar cada una.
 
 ## Índice
 
@@ -301,7 +301,7 @@ Todas las rutas empiezan con `/api`. 🔒 indica que requieren sesión (token JW
 | Módulo | Método y ruta | Qué hace |
 |---|---|---|
 | Auth | `POST /auth/register` | Crea la cuenta y envía el código al correo |
-| | `POST /auth/verify` | Comprueba el código y entrega el token |
+| | `POST /auth/verify` | Comprueba el código **y la contraseña** y entrega el token |
 | | `POST /auth/resend-code` | Envía un código nuevo (máx. 1 por minuto) |
 | | `POST /auth/login` | Inicia sesión |
 | | `GET /auth/me` 🔒 | Datos del usuario actual |
@@ -373,8 +373,8 @@ sequenceDiagram
   API->>Mail: envía el código de 6 dígitos
   API-->>App: { userId }
   E->>App: escribe el código
-  App->>API: POST /auth/verify
-  API->>DB: compara hashes, cuenta intentos (máx. 5)
+  App->>API: POST /auth/verify (código + contraseña)
+  API->>DB: reserva un intento (máx. 5), compara el hash del código y la contraseña
   API->>DB: verified = true + notificación de bienvenida
   API-->>App: { token JWT, user }
   App->>App: guarda el token y entra
@@ -466,7 +466,9 @@ sobreviven a un reinicio del servidor.
 |---|---|
 | Robo de contraseñas | **bcrypt** con *salt*: ni el servidor conoce las contraseñas |
 | Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código |
-| Adivinar el código | 6 dígitos, vence en 15 min, máx. 5 intentos, guardado con hash |
+| Adivinar el código | 6 dígitos, vence en 15 min, guardado con hash y máx. 5 intentos, reservados de forma atómica para que ni peticiones en paralelo los superen |
+| Re-registrar un correo ajeno sin verificar | La verificación exige el código **y** la contraseña del registro: quien re-registre el correo no puede quedarse con la cuenta |
+| Phishing en el correo de verificación | El nombre se escapa antes de insertarlo en el HTML del correo |
 | Fuerza bruta en el login | **Rate limiting**: 10 intentos por minuto por IP. Mensaje idéntico para "correo no existe" y "contraseña incorrecta" |
 | Suplantar a otro usuario | **JWT firmado**: si se altera, la firma deja de coincidir |
 | Editar o leer lo ajeno | Cada servicio verifica que seas el dueño o participante (403 si no) |

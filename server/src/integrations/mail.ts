@@ -11,8 +11,11 @@ type Email = { to: string; subject: string; html: string; text: string }
 
 const mailFailed = () => new AppError(502, 'MAIL_FAILED', 'No pudimos enviar el correo. Inténtalo en un momento.')
 
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
 function verificationEmail(to: string, name: string, code: string): Email {
-  const first = name.trim().split(/\s+/)[0] || 'estudiante'
+  const first = escapeHtml(name.trim().split(/\s+/)[0] || 'estudiante')
   return {
     to,
     subject: `Tu código de EcoEstudiante: ${code}`,
