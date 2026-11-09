@@ -107,4 +107,80 @@ async function notifySavedSearches(materialId: string, ownerId: string, input: M
   if (data.length) await prisma.notification.createMany({ data })
 }
 
+const forbidden = () => new AppError(403, 'FORBIDDEN', 'Solo quien publicó puede modificar este material.')
+
+/** Material modificable por su dueño (no existe o está Eliminado → 404; ajeno → 403). */
+async function ownedMaterial(id: string, userId: string) {
+  const material = await prisma.material.findUnique({ where: { id }, include: { images: true } })
+  if (!material || material.status === 'Eliminado') throw materialNotFound()
+  if (material.ownerId !== userId) throw forbidden()
+  return material
+}
+
+export async function update(id: string, userId: string, input: MaterialInput, images: ImageStorage): Promise<MaterialDto> {
+  const current = await ownedMaterial(id, userId)
+  const previous = current.images.map((i) => i.url)
+  checkImages(input.images, images, previous)
+  const material = await prisma.$transaction(async (tx) => {
+    await tx.materialImage.deleteMany({ where: { materialId: id } })
+    return tx.material.update({
+      where: { id },
+      data: {
+        ...dataFrom(input),
+        images: { create: input.images.map((url, position) => ({ url, publicId: url, position })) },
+      },
+      include: materialInclude,
+    })
+  })
+  await Promise.all(previous.filter((url) => !input.images.includes(url)).map((url) => images.remove(url)))
+  return toMaterialDto(material)
+}
+
+/** Disponible ↔ Pausado y Disponible/Reservado → Entregado (entregas hechas fuera de la app). */
+const ALLOWED: Record<string, string[]> = {
+  Disponible: ['Pausado', 'Entregado'],
+  Pausado: ['Disponible'],
+  Reservado: ['Entregado'],
+}
+
+export async function setStatus(id: string, userId: string, status: 'Disponible' | 'Pausado' | 'Entregado') {
+  const current = await ownedMaterial(id, userId)
+  if (!ALLOWED[current.status]?.includes(status))
+    throw new AppError(409, 'INVALID_TRANSITION', 'No se puede cambiar la publicación a ese estado.')
+  return toMaterialDto(await prisma.material.update({ where: { id }, data: { status }, include: materialInclude }))
+}
+
+/**
+ * Sin chats ni acuerdos: se borra de verdad. Con historial: pasa a Eliminado (para no romper
+ * chats ni reseñas) y se cancelan sus acuerdos activos. En ambos casos se borran sus fotos.
+ */
+export async function remove(id: string, userId: string, images: ImageStorage) {
+  const current = await ownedMaterial(id, userId)
+  const [conversations, agreements] = await Promise.all([
+    prisma.conversation.count({ where: { materialId: id } }),
+    prisma.agreement.count({ where: { materialId: id } }),
+  ])
+  if (conversations || agreements) {
+    await prisma.$transaction([
+      prisma.material.update({ where: { id }, data: { status: 'Eliminado' } }),
+      prisma.agreement.updateMany({
+        where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } },
+        data: { status: 'Cancelado' },
+      }),
+    ])
+  } else {
+    await prisma.material.delete({ where: { id } })
+  }
+  await Promise.all(current.images.map((i) => images.remove(i.url)))
+}
+
+export async function listMine(userId: string): Promise<MaterialDto[]> {
+  const rows = await prisma.material.findMany({
+    where: { ownerId: userId, status: { not: 'Eliminado' } },
+    include: materialInclude,
+    orderBy: { createdAt: 'desc' },
+  })
+  return toMaterialDtos(rows)
+}
+
 export { dataFrom, checkImages }

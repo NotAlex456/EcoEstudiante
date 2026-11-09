@@ -30,6 +30,10 @@ export const materialSchema = z
 
 export type MaterialInput = z.infer<typeof materialSchema>
 
+export const statusSchema = z
+  .object({ status: z.enum(['Disponible', 'Pausado', 'Entregado'], 'Estado no permitido.') })
+  .strict()
+
 const optionalText = z.string().trim().optional().transform((v) => v || undefined)
 const optionalNumber = (min: number, max: number) =>
   z

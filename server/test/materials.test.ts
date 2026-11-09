@@ -168,3 +168,100 @@ describe('materiales: crear, listar y ver', () => {
     })
   })
 })
+
+describe('materiales: editar, estado, borrar y mis publicaciones', () => {
+  beforeEach(async () => {
+    await resetDb()
+    removed.length = 0
+    ana = await registerAndVerify(app)
+    beto = await registerAndVerify(app, { email: 'beto.rojas@upsjb.edu.pe', name: 'Beto Rojas' })
+  })
+
+  const edit = (token: string, id: string, body: object) => request(app).patch(`/api/materials/${id}`).set(auth(token)).send(body)
+  const setStatus = (token: string, id: string, status: string) =>
+    request(app).patch(`/api/materials/${id}/status`).set(auth(token)).send({ status })
+  const remove = (token: string, id: string) => request(app).delete(`/api/materials/${id}`).set(auth(token))
+
+  it('el dueño edita datos y fotos; la foto quitada se borra del almacenamiento', async () => {
+    const { body } = await create(ana.token, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
+    const res = await edit(ana.token, body.id, { ...validMaterial, title: 'Casio fx-570 (rebajada)', images: ['https://img.test/b.jpg', 'https://img.test/c.jpg'] })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ title: 'Casio fx-570 (rebajada)', images: ['https://img.test/b.jpg', 'https://img.test/c.jpg'] })
+    expect(removed).toEqual(['https://img.test/a.jpg'])
+  })
+
+  it('al editar se pueden conservar las fotos que el material ya tenía, aunque sean externas', async () => {
+    await seed(prisma)
+    const maria = await prisma.material.findUniqueOrThrow({ where: { id: 'm-1' }, include: { images: true } })
+    await prisma.material.update({ where: { id: 'm-1' }, data: { ownerId: ana.user.id } })
+    const keep = maria.images.map((i) => i.url)
+    const res = await edit(ana.token, 'm-1', { ...validMaterial, images: keep })
+    expect(res.status).toBe(200)
+    expect(res.body.images).toEqual(keep)
+    expect((await edit(ana.token, 'm-1', { ...validMaterial, images: ['https://evil.pe/x.jpg'] })).status).toBe(400)
+  })
+
+  it('otra persona no puede editar, cambiar el estado ni borrar', async () => {
+    const { body } = await create(ana.token)
+    const expected = { code: 'FORBIDDEN', message: 'Solo quien publicó puede modificar este material.' }
+    for (const res of [
+      await edit(beto.token, body.id, { ...validMaterial, title: 'Robada robada' }),
+      await setStatus(beto.token, body.id, 'Pausado'),
+      await remove(beto.token, body.id),
+    ]) {
+      expect(res.status).toBe(403)
+      expect(res.body.error).toEqual(expected)
+    }
+    const stored = await prisma.material.findUniqueOrThrow({ where: { id: body.id } })
+    expect([stored.title, stored.status]).toEqual([validMaterial.title, 'Disponible'])
+  })
+
+  it('solo permite las transiciones de estado previstas', async () => {
+    const { body } = await create(ana.token)
+    expect((await setStatus(ana.token, body.id, 'Pausado')).body.status).toBe('Pausado')
+    expect((await setStatus(ana.token, body.id, 'Disponible')).body.status).toBe('Disponible')
+    expect((await setStatus(ana.token, body.id, 'Entregado')).body.status).toBe('Entregado')
+    const back = await setStatus(ana.token, body.id, 'Disponible')
+    expect(back.status).toBe(409)
+    expect(back.body.error).toEqual({ code: 'INVALID_TRANSITION', message: 'No se puede cambiar la publicación a ese estado.' })
+
+    const other = await create(ana.token)
+    await prisma.material.update({ where: { id: other.body.id }, data: { status: 'Reservado' } })
+    expect((await setStatus(ana.token, other.body.id, 'Pausado')).status).toBe(409)
+    expect((await setStatus(ana.token, other.body.id, 'Entregado')).status).toBe(200)
+    expect((await setStatus(ana.token, other.body.id, 'Reservado')).status).toBe(400)
+  })
+
+  it('borrar sin chats elimina la fila y sus fotos (salvo las sembradas)', async () => {
+    const { body } = await create(ana.token, { ...validMaterial, images: ['https://img.test/a.jpg', 'https://img.test/b.jpg'] })
+    expect((await remove(ana.token, body.id)).status).toBe(204)
+    expect(await prisma.material.findUnique({ where: { id: body.id } })).toBeNull()
+    expect(removed.sort()).toEqual(['https://img.test/a.jpg', 'https://img.test/b.jpg'])
+    expect((await remove(ana.token, body.id)).status).toBe(404)
+  })
+
+  it('borrar con chats lo marca Eliminado, lo oculta y cancela sus acuerdos activos', async () => {
+    const { body } = await create(ana.token)
+    await prisma.conversation.create({ data: { materialId: body.id, buyerId: beto.user.id, sellerId: ana.user.id } })
+    const agreement = await prisma.agreement.create({
+      data: { materialId: body.id, buyerId: beto.user.id, sellerId: ana.user.id, place: 'Biblioteca central', date: '2026-12-01', time: '12:00' },
+    })
+    expect((await remove(ana.token, body.id)).status).toBe(204)
+    expect((await prisma.material.findUniqueOrThrow({ where: { id: body.id } })).status).toBe('Eliminado')
+    expect((await prisma.agreement.findUniqueOrThrow({ where: { id: agreement.id } })).status).toBe('Cancelado')
+    expect((await list()).body.items.map((m: { id: string }) => m.id)).not.toContain(body.id)
+    const mine = await request(app).get('/api/users/me/materials').set(auth(ana.token))
+    expect(mine.body.map((m: { id: string }) => m.id)).not.toContain(body.id)
+    expect((await edit(ana.token, body.id, validMaterial)).status).toBe(404)
+  })
+
+  it('mis publicaciones incluye las pausadas y no las ajenas', async () => {
+    const mine = await create(ana.token)
+    await setStatus(ana.token, mine.body.id, 'Pausado')
+    await create(beto.token)
+    const res = await request(app).get('/api/users/me/materials').set(auth(ana.token))
+    expect(res.status).toBe(200)
+    expect(res.body.map((m: { id: string; status: string }) => [m.id, m.status])).toEqual([[mine.body.id, 'Pausado']])
+    expect((await request(app).get('/api/users/me/materials')).status).toBe(401)
+  })
+})

@@ -5,7 +5,7 @@ import { errorHandler, notFound } from './errors'
 import { createImageStorage, type ImageStorage } from './integrations/images'
 import { createMailer, type Mailer } from './integrations/mail'
 import { authRoutes } from './modules/auth/routes'
-import { materialRoutes } from './modules/materials/routes'
+import { materialRoutes, myMaterialsRoute } from './modules/materials/routes'
 import { uploadRoutes } from './modules/uploads/routes'
 import { userRoutes } from './modules/users/routes'
 
@@ -24,7 +24,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   })
 
   app.use('/api/auth', authRoutes({ config, mailer }))
-  app.use('/api/users', userRoutes(config))
+  app.use('/api/users', myMaterialsRoute(config), userRoutes(config))
   app.use('/api/uploads', uploadRoutes(config, images))
   app.use('/api/materials', materialRoutes(config, images))
 

@@ -4,11 +4,12 @@ import { AppError } from '../../errors'
 import type { ImageStorage } from '../../integrations/images'
 import { currentUserId, optionalAuth, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
-import { listQuerySchema, materialSchema } from './schemas'
+import { listQuerySchema, materialSchema, statusSchema } from './schemas'
 import * as materials from './service'
 
 export function materialRoutes(config: Config, images: ImageStorage) {
   const router = Router()
+  const auth = requireAuth(config)
 
   router.get('/', async (req, res) => {
     const query = listQuerySchema.safeParse(req.query)
@@ -20,9 +21,31 @@ export function materialRoutes(config: Config, images: ImageStorage) {
     res.json(await materials.getVisible(String(req.params.id), req.user?.id))
   })
 
-  router.post('/', requireAuth(config), body(materialSchema), async (req, res) => {
+  router.post('/', auth, body(materialSchema), async (req, res) => {
     res.status(201).json(await materials.create(currentUserId(req), req.body, images))
   })
 
+  router.patch('/:id', auth, body(materialSchema), async (req, res) => {
+    res.json(await materials.update(String(req.params.id), currentUserId(req), req.body, images))
+  })
+
+  router.patch('/:id/status', auth, body(statusSchema), async (req, res) => {
+    res.json(await materials.setStatus(String(req.params.id), currentUserId(req), req.body.status))
+  })
+
+  router.delete('/:id', auth, async (req, res) => {
+    await materials.remove(String(req.params.id), currentUserId(req), images)
+    res.status(204).end()
+  })
+
+  return router
+}
+
+/** GET /api/users/me/materials (se monta en el router de usuarios). */
+export function myMaterialsRoute(config: Config) {
+  const router = Router()
+  router.get('/me/materials', requireAuth(config), async (req, res) => {
+    res.json(await materials.listMine(currentUserId(req)))
+  })
   return router
 }
