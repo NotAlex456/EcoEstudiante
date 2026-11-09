@@ -56,9 +56,9 @@ o universidades y escalado horizontal (un solo proceso de servidor).
 
 ```
 server/
-  package.json                ← independiente del frontend (pnpm)
+  package.json                ← independiente del frontend (npm)
   .env.example                ← documenta todas las variables
-  docker-compose.yml          ← PostgreSQL local (desarrollo + pruebas)
+  scripts/db.ts               ← PostgreSQL embebido (embedded-postgres) para desarrollo
   prisma/
     schema.prisma             ← diseño de la base de datos
     migrations/               ← SQL generado por Prisma
@@ -362,7 +362,7 @@ a `User.notificationPrefs`:
 
 ## 7. Pruebas
 
-- **Backend:** Vitest + Supertest contra una base de datos `ecoestudiante_test` (mismo Docker), con las integraciones en
+- **Backend:** Vitest + Supertest contra una base de datos `ecoestudiante_test` (PostgreSQL embebido que las pruebas inician solas), con las integraciones en
   modo local. Antes de cada archivo de pruebas se vacían las tablas.
   - Auth: registro → código → verificación → login; código vencido, código incorrecto, 5 intentos, correo que no es
     institucional, correo repetido.
@@ -398,8 +398,8 @@ presentes.
 
 ### Local
 
-1. `cd server && docker compose up -d` (PostgreSQL 16). Sin Docker, `DATABASE_URL` apunta a una base gratuita de Neon.
-2. `pnpm install`, `pnpm prisma migrate dev`, `pnpm prisma db seed`, `pnpm dev` (tsx en modo watch).
+1. `cd server && npm run db`: PostgreSQL 17 embebido con `embedded-postgres` (paquete de npm, sin Docker ni instalador), puerto 5433. Alternativa: `DATABASE_URL` hacia una base gratuita de Neon.
+2. `npm install`, `npx prisma migrate dev`, `npx prisma db seed`, `npm run dev` (tsx en modo watch).
 3. En el frontend, `VITE_API_URL=http://localhost:3000` en `.env.local`. Para probar en el celular por Wi-Fi se usa la
    IP de la laptop.
 
@@ -407,8 +407,8 @@ presentes.
 
 - **Base de datos:** Neon, plan gratuito.
 - **Servidor:** Render, web service gratuito, conectado a este repositorio de GitHub con *root directory* `server/`.
-  - Build: `pnpm install && pnpm prisma generate && pnpm build`.
-  - Start: `pnpm prisma migrate deploy && node dist/index.js`.
+  - Build: `npm ci && npx prisma generate && npm run build`.
+  - Start: `npx prisma migrate deploy && node dist/index.js`.
   - Health check: `/health`.
 - **Secretos:** solo como variables de entorno de Render. `.env` y `google-services.json` del servidor nunca van a git.
 - **APK 2.0:** se compila con `VITE_API_URL` apuntando a Render y se publica en Releases. Se actualiza el README.
@@ -419,7 +419,7 @@ presentes.
 
 Cada etapa termina con pruebas pasando y la app funcionando de punta a punta para lo que cubre.
 
-1. **Base:** `server/` con Express, Prisma, Docker, seed, auth completa con correo real y perfiles. `api.ts` en el
+1. **Base:** `server/` con Express, Prisma, PostgreSQL embebido, seed, auth completa con correo real y perfiles. `api.ts` en el
    frontend. Pantallas de Auth y Account contra el servidor.
 2. **Materiales y fotos:** CRUD de materiales, filtros, `/uploads` con Cloudinary, guardados, búsquedas guardadas y
    reportes. Pantallas Explore, Detail, Publish, Profile y Activity.
