@@ -17,3 +17,13 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 
 export const makeApp = (overrides: Partial<Config> = {}, deps: Partial<AppDeps> = {}) =>
   createApp(testConfig(overrides), deps)
+
+/** Vacía todas las tablas (salvo el historial de migraciones). */
+export async function resetDb() {
+  const { prisma } = await import('../src/db')
+  const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`
+  if (!tables.length) return
+  const list = tables.map((t) => `"public"."${t.tablename}"`).join(', ')
+  await prisma.$executeRawUnsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`)
+}
