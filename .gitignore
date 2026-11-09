@@ -28,3 +28,7 @@ logs/
 /.figaro/
 /.claude/
 /entrega/
+
+# Servidor
+server/.pg-data/
+server/uploads/
