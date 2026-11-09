@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
 import { setUnauthorizedHandler, waitForServer } from './lib/api'
+import { syncAll } from './lib/sync'
 import { startAlerts } from './lib/alerts'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
 import { currentUser, logout, processScheduled, restoreSession, unreadCount, useStore } from './lib/store'
@@ -172,6 +173,11 @@ export default function App() {
   useEffect(() => {
     if (me) startAlerts()
   }, [me])
+
+  // Al abrir la app o iniciar sesión: traer materiales y "mi actividad" del servidor.
+  useEffect(() => {
+    if (boot === 'ready' && me?.id) void syncAll()
+  }, [boot, me?.id])
 
   // In-app links go through the router so the back button stays inside the app.
   useEffect(() => {

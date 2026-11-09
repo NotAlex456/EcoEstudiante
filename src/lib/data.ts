@@ -1,5 +1,5 @@
 import { CATEGORIES as CATEGORY_LIST, CONDITIONS as CONDITION_LIST, MODES as MODE_LIST } from '../../shared/constants'
-import { DAY, SEED_MATERIALS, SEED_USERS } from '../../shared/seed-data'
+import { SEED_USERS } from '../../shared/seed-data'
 import type { Category, Condition, Material, Mode, State, User } from './types'
 
 export { CAREERS, COMMUNITY_RULES, COURSES, CYCLES, REPORT_REASONS, SAFE_POINTS } from '../../shared/constants'
@@ -11,18 +11,16 @@ export const CONDITIONS: Condition[] = [...CONDITION_LIST]
 
 const seedUsers: User[] = SEED_USERS.map((u) => ({ ...u, verified: true, createdAt: 0 }))
 
-function seedMaterials(now: number): Material[] {
-  return SEED_MATERIALS.map(({ daysAgo, ...m }) => ({ ...m, createdAt: now - daysAgo * DAY }))
-}
 
-export const STATE_VERSION = 1
+/** 2: los materiales vienen del servidor (etapa 2); el seed local ya no los incluye. */
+export const STATE_VERSION = 2
 
-export function createSeedState(now = Date.now()): State {
+export function createSeedState(): State {
   return {
     version: STATE_VERSION,
     sessionUserId: null,
     users: seedUsers,
-    materials: seedMaterials(now),
+    materials: [],
     conversations: [],
     agreements: [],
     notifications: [],

@@ -43,6 +43,9 @@ function setState(updater: (draft: State) => State) {
   listeners.forEach((listener) => listener())
 }
 
+/** Para `sync.ts`: escribe en la caché los datos que llegan del servidor. */
+export const updateCache = setState
+
 export function getState() {
   return state
 }
@@ -97,13 +100,14 @@ export const currentUser = (s: State) => s.users.find((u) => u.id === s.sessionU
 export const userById = (s: State, id: string) => s.users.find((u) => u.id === id)
 export const materialById = (s: State, id: string) => s.materials.find((m) => m.id === id)
 
+/** Reputación: la del servidor (o la base sembrada) más las valoraciones de acuerdos locales (modo mixto). */
 export function userRating(s: State, userId: string) {
   const user = userById(s, userId)
   const ratings = s.agreements.filter((a) => a.sellerId === userId && a.rating).map((a) => a.rating!.stars)
-  const baseCount = user?.baseRatingCount ?? 0
-  const count = baseCount + ratings.length
+  const base = user?.rating ?? { value: user?.baseRating ?? 0, count: user?.baseRatingCount ?? 0 }
+  const count = base.count + ratings.length
   if (!count) return { value: 0, count: 0 }
-  const total = (user?.baseRating ?? 0) * baseCount + ratings.reduce((a, b) => a + b, 0)
+  const total = base.value * base.count + ratings.reduce((a, b) => a + b, 0)
   return { value: Math.round((total / count) * 10) / 10, count }
 }
 

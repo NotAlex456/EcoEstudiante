@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, EmptyState, Icon, IconName, MaterialCard } from '../components/ui'
 import { CAREERS, CATEGORIES, CONDITIONS, CYCLES, MODES } from '../lib/data'
 import { currentUser, matchesSearch, saveSearch, toggleSaved, useStore } from '../lib/store'
+import { loadMaterials, useRefresh } from '../lib/sync'
 
 const categoryIcons: Record<string, IconName> = { Libros: 'book', Apuntes: 'notes', Calculadoras: 'calculator', Separatas: 'file' }
 
@@ -29,6 +30,7 @@ export function Explore() {
   const savedSearches = useStore((s) => s.savedSearches)
   const [filters, setFilters] = useState<Filters>(remembered)
   const [showFilters, setShowFilters] = useState(false)
+  const { loading } = useRefresh(loadMaterials, [])
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }))
 
   useEffect(() => { remembered = filters }, [filters])
@@ -109,7 +111,9 @@ export function Explore() {
           <button className="filters__clear" onClick={() => setFilters({ ...emptyFilters, query: filters.query })}>Limpiar filtros</button>
         </div>
         <p className="result-count"><strong>{filtered.length}</strong> {filtered.length === 1 ? 'material encontrado' : 'materiales encontrados'} {filters.query && <>para “{filters.query}”</>}</p>
-        {filtered.length ? (
+        {loading && !materials.length ? (
+          <p className="result-count" role="status">Cargando…</p>
+        ) : filtered.length ? (
           <div className="materials-grid">
             {filtered.map((m) => <MaterialCard key={m.id} material={m} mine={m.ownerId === me.id} saved={saved.includes(m.id)} onSave={() => toggleSaved(m.id)} />)}
           </div>

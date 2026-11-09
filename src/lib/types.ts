@@ -12,6 +12,8 @@ export type User = {
   cycle: number
   verified: boolean
   createdAt: number
+  /** Reputación calculada por el servidor (reseñas recibidas). */
+  rating?: { value: number; count: number }
   /** Base reputation for seeded students; real ratings are added on top. */
   baseRating?: number
   baseRatingCount?: number
