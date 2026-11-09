@@ -13,7 +13,7 @@ export function userRoutes(config: Config) {
   })
 
   router.get('/:id', async (req, res) => {
-    res.json(await users.getPublicUser(req.params.id))
+    res.json(await users.getPublicUser(String(req.params.id)))
   })
 
   return router

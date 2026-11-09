@@ -6,6 +6,8 @@ import { createImageStorage, type ImageStorage } from './integrations/images'
 import { createMailer, type Mailer } from './integrations/mail'
 import { authRoutes } from './modules/auth/routes'
 import { materialRoutes, myMaterialsRoute } from './modules/materials/routes'
+import { reportRoutes } from './modules/reports/routes'
+import { savedRoutes, savedSearchRoutes } from './modules/saved/routes'
 import { uploadRoutes } from './modules/uploads/routes'
 import { userRoutes } from './modules/users/routes'
 
@@ -27,6 +29,9 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use('/api/users', myMaterialsRoute(config), userRoutes(config))
   app.use('/api/uploads', uploadRoutes(config, images))
   app.use('/api/materials', materialRoutes(config, images))
+  app.use('/api/saved', savedRoutes(config))
+  app.use('/api/saved-searches', savedSearchRoutes(config))
+  app.use('/api/reports', reportRoutes(config))
 
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {

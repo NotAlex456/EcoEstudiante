@@ -1,5 +1,6 @@
 import { prisma } from '../../db'
 import { AppError } from '../../errors'
+import { materialInclude, toMaterialDtos, type MaterialDto } from '../materials/dto'
 import { toMe, type MeDto } from './dto'
 import type { UpdateMeInput } from './schemas'
 
@@ -11,6 +12,8 @@ export type PublicUserDto = {
   createdAt: string
   rating: { value: number; count: number }
   reviews: { authorName: string; stars: number; comment: string; materialTitle: string; createdAt: string }[]
+  /** Sus materiales disponibles. */
+  materials: MaterialDto[]
 }
 
 const userNotFound = () => new AppError(404, 'USER_NOT_FOUND', 'Este estudiante no existe.')
@@ -32,7 +35,10 @@ export async function updateMe(userId: string, input: UpdateMeInput): Promise<Me
 export async function getPublicUser(id: string): Promise<PublicUserDto> {
   const user = await prisma.user.findUnique({ where: { id } })
   if (!user?.verified) throw userNotFound()
-  const reviews = await prisma.review.findMany({ where: { targetId: id }, orderBy: { createdAt: 'desc' } })
+  const [reviews, materials] = await Promise.all([
+    prisma.review.findMany({ where: { targetId: id }, orderBy: { createdAt: 'desc' } }),
+    prisma.material.findMany({ where: { ownerId: id, status: 'Disponible' }, include: materialInclude, orderBy: { createdAt: 'desc' } }),
+  ])
   return {
     id: user.id,
     name: user.name,
@@ -40,6 +46,7 @@ export async function getPublicUser(id: string): Promise<PublicUserDto> {
     cycle: user.cycle,
     createdAt: user.createdAt.toISOString(),
     rating: await userRating(id),
+    materials: await toMaterialDtos(materials),
     reviews: reviews.map((r) => ({
       authorName: r.authorName,
       stars: r.stars,
