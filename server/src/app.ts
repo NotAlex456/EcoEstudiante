@@ -4,6 +4,7 @@ import type { Config } from './config'
 import { errorHandler, notFound } from './errors'
 import { createMailer, type Mailer } from './integrations/mail'
 import { authRoutes } from './modules/auth/routes'
+import { userRoutes } from './modules/users/routes'
 
 export type AppDeps = { mailer: Mailer }
 
@@ -20,6 +21,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   })
 
   app.use('/api/auth', authRoutes({ config, mailer }))
+  app.use('/api/users', userRoutes(config))
 
   app.use((_req, _res, next) => next(notFound()))
   app.use(errorHandler)
