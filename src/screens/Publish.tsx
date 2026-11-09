@@ -15,6 +15,7 @@ export function Publish({ editId }: { editId?: string }) {
   const [done, setDone] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busyPhotos, setBusyPhotos] = useState(false)
+  const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState<MaterialInput>(() =>
     editing
@@ -68,9 +69,9 @@ export function Publish({ editId }: { editId?: string }) {
     }
   }
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!validate(step)) return
+    if (saving || !validate(step)) return
     if (step < 3) {
       setStep(step + 1)
       window.scrollTo({ top: 0 })
@@ -83,12 +84,18 @@ export function Publish({ editId }: { editId?: string }) {
       price: form.mode === 'Venta' ? form.price : 0,
       exchangeFor: form.mode === 'Intercambio' ? form.exchangeFor?.trim() || undefined : undefined,
     }
+    // Si el servidor falla, el error ya se mostró y el formulario conserva lo escrito.
+    setSaving(true)
     if (editing) {
-      updateMaterial(editing.id, data)
+      const ok = await updateMaterial(editing.id, data)
+      setSaving(false)
+      if (!ok) return
       toast('Publicación actualizada')
       navigate(`#/material/${editing.id}`, { replace: true })
     } else {
-      setDone(publishMaterial(data))
+      const id = await publishMaterial(data)
+      setSaving(false)
+      if (id) setDone(id)
     }
   }
 
@@ -221,7 +228,7 @@ export function Publish({ editId }: { editId?: string }) {
 
         <div className="form-actions">
           {step > 1 && <Button variant="secondary" onClick={() => setStep(step - 1)}>Volver</Button>}
-          <Button type="submit" disabled={step === 3 && !accepted}>{step === 3 ? (editing ? 'Guardar cambios' : 'Publicar material') : 'Continuar'}</Button>
+          <Button type="submit" disabled={saving || (step === 3 && !accepted)}>{step === 3 ? (saving ? (editing ? 'Guardando…' : 'Publicando…') : editing ? 'Guardar cambios' : 'Publicar material') : 'Continuar'}</Button>
         </div>
       </form>
     </section>

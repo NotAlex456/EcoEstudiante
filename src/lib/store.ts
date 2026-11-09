@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { api, ApiError, getToken, setToken } from './api'
 import { createSeedState, simulatedReply, STATE_VERSION } from './data'
+import { uploadImages } from './images'
+import { adoptMaterials, type MaterialDto } from './sync'
 import type { Agreement, Conversation, Material, ScheduledEvent, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
@@ -232,52 +234,84 @@ export function resetDemo() {
   listeners.forEach((l) => l())
 }
 
-/* ---------- materials ---------- */
+/* ---------- materials (servidor) ---------- */
 
-export function toggleSaved(materialId: string) {
+/** Muestra el error del servidor (o de red) y devuelve false. */
+function failed(error: unknown) {
+  toast(failure(error).error, 'error')
+  return false
+}
+
+export async function toggleSaved(materialId: string) {
   const me = state.sessionUserId
   if (!me) return
   const current = state.saved[me] ?? []
   const has = current.includes(materialId)
-  setState((s) => ({ ...s, saved: { ...s.saved, [me]: has ? current.filter((id) => id !== materialId) : [...current, materialId] } }))
-  toast(has ? 'Quitado de guardados' : 'Guardado en Mi actividad')
+  const apply = (ids: string[]) => setState((s) => ({ ...s, saved: { ...s.saved, [me]: ids } }))
+  apply(has ? current.filter((id) => id !== materialId) : [...current, materialId]) // optimista
+  try {
+    await api(has ? 'DELETE' : 'PUT', `/saved/${encodeURIComponent(materialId)}`)
+    toast(has ? 'Quitado de guardados' : 'Guardado en Mi actividad')
+  } catch (error) {
+    apply(current)
+    failed(error)
+  }
 }
 
 export type MaterialInput = Omit<Material, 'id' | 'ownerId' | 'status' | 'createdAt'>
 
-export function publishMaterial(input: MaterialInput) {
+/** Sube las fotos nuevas y devuelve el cuerpo que espera la API. */
+async function materialBody(input: MaterialInput) {
+  return { ...input, exchangeFor: input.exchangeFor || undefined, images: await uploadImages(input.images) }
+}
+
+/** Publica en el servidor. Devuelve el id, o null si falló (el error ya se mostró). */
+export async function publishMaterial(input: MaterialInput): Promise<string | null> {
   const me = state.sessionUserId!
-  const material: Material = { ...input, id: uid('m'), ownerId: me, status: 'Disponible', createdAt: Date.now() }
+  let dto: MaterialDto
+  try {
+    dto = await api<MaterialDto>('POST', '/materials', await materialBody(input))
+  } catch (error) {
+    failed(error)
+    return null
+  }
+  adoptMaterials([dto])
+  // Simulación local de un estudiante interesado (pasa al servidor en la etapa 4).
   const others = state.users.filter((u) => u.baseRating && u.id !== me)
-  // Chosen now so a background notification can name the student before the event fires.
   const buyer = others[Math.floor(Math.random() * others.length)]
-  const matches = state.savedSearches.filter((search) => search.userId !== me && matchesSearch(material, search))
-  setState((s) => ({
-    ...s,
-    materials: [material, ...s.materials],
-    notifications: [
-      ...s.notifications,
-      ...matches.map((search) => ({
-        id: uid('n'), userId: search.userId, at: Date.now(), read: false, link: `#/material/${material.id}`,
-        text: `Nuevo material para tu búsqueda “${search.query || search.category}”: ${material.title}`,
-      })),
-    ],
-    scheduled: buyer
-      ? [...s.scheduled, { id: uid('e'), kind: 'buyer-interest', dueAt: Date.now() + 25_000, materialId: material.id, ownerId: me, buyerId: buyer.id, conversationId: uid('c') } as ScheduledEvent]
-      : s.scheduled,
-  }))
-  return material.id
+  if (buyer) {
+    setState((s) => ({
+      ...s,
+      scheduled: [...s.scheduled, { id: uid('e'), kind: 'buyer-interest', dueAt: Date.now() + 25_000, materialId: dto.id, ownerId: me, buyerId: buyer.id, conversationId: uid('c') } as ScheduledEvent],
+    }))
+  }
+  return dto.id
 }
 
-export function updateMaterial(id: string, input: MaterialInput) {
-  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, ...input } : m)) }))
+export async function updateMaterial(id: string, input: MaterialInput): Promise<boolean> {
+  try {
+    adoptMaterials([await api<MaterialDto>('PATCH', `/materials/${encodeURIComponent(id)}`, await materialBody(input))])
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-export function setMaterialStatus(id: string, status: Material['status']) {
-  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, status } : m)) }))
+export async function setMaterialStatus(id: string, status: 'Disponible' | 'Pausado' | 'Entregado'): Promise<boolean> {
+  try {
+    adoptMaterials([await api<MaterialDto>('PATCH', `/materials/${encodeURIComponent(id)}/status`, { status })])
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-export function deleteMaterial(id: string) {
+export async function deleteMaterial(id: string): Promise<boolean> {
+  try {
+    await api('DELETE', `/materials/${encodeURIComponent(id)}`)
+  } catch (error) {
+    return failed(error)
+  }
   setState((s) => ({
     ...s,
     materials: s.materials.filter((m) => m.id !== id),
@@ -285,24 +319,48 @@ export function deleteMaterial(id: string) {
     agreements: s.agreements.filter((a) => a.materialId !== id),
     scheduled: s.scheduled.filter((e) => !('materialId' in e) || e.materialId !== id),
   }))
+  return true
 }
 
 export { matchesSearch }
 
-export function saveSearch(search: { query: string; category: string; mode: string }) {
+type SavedSearchDto = { id: string; query: string; category: string; mode: string; createdAt: string }
+
+export async function saveSearch(search: { query: string; category: string; mode: string }) {
   const me = state.sessionUserId!
-  setState((s) => ({ ...s, savedSearches: [...s.savedSearches, { ...search, id: uid('s'), userId: me, at: Date.now() }] }))
-  toast('Búsqueda guardada: te avisaremos cuando alguien publique algo así.')
+  try {
+    const saved = await api<SavedSearchDto>('POST', '/saved-searches', search)
+    setState((s) => ({
+      ...s,
+      savedSearches: [...s.savedSearches.filter((x) => x.id !== saved.id), { ...search, id: saved.id, userId: me, at: Date.parse(saved.createdAt) }],
+    }))
+    toast('Búsqueda guardada: te avisaremos cuando alguien publique algo así.')
+  } catch (error) {
+    failed(error)
+  }
 }
 
-export function deleteSavedSearch(id: string) {
+export async function deleteSavedSearch(id: string) {
+  try {
+    await api('DELETE', `/saved-searches/${encodeURIComponent(id)}`)
+  } catch (error) {
+    // Si ya no existía en el servidor, igual se quita de la caché.
+    if (!(error instanceof ApiError && error.status === 404)) return void failed(error)
+  }
   setState((s) => ({ ...s, savedSearches: s.savedSearches.filter((x) => x.id !== id) }))
 }
 
-export function reportMaterial(materialId: string, reason: string, detail: string) {
+export async function reportMaterial(materialId: string, reason: string, detail: string): Promise<boolean> {
   const me = state.sessionUserId!
+  try {
+    await api('POST', '/reports', { materialId, reason, detail })
+  } catch (error) {
+    return failed(error)
+  }
+  // Se guarda en la caché para seguir ocultando el material en Explorar.
   setState((s) => ({ ...s, reports: [...s.reports, { id: uid('r'), materialId, userId: me, reason, detail, at: Date.now() }] }))
   toast('Gracias por avisar. La moderación revisará la publicación.')
+  return true
 }
 
 /* ---------- conversations ---------- */

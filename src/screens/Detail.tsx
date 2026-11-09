@@ -125,7 +125,11 @@ export function Detail({ id }: { id: string }) {
         </div>
       )}
 
-      {reporting && <ReportSheet onClose={() => setReporting(false)} onSubmit={(reason, detail) => { reportMaterial(material.id, reason, detail); setReporting(false); navigate('#/', { replace: true }) }} />}
+      {reporting && <ReportSheet onClose={() => setReporting(false)} onSubmit={async (reason, detail) => {
+        if (!(await reportMaterial(material.id, reason, detail))) return
+        setReporting(false)
+        navigate('#/', { replace: true })
+      }} />}
     </section>
   )
 }

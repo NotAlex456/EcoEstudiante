@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Avatar, Button, EmptyState, Icon, MaterialCard } from '../components/ui'
 import { navigate } from '../lib/router'
+import { loadActivity, useRefresh } from '../lib/sync'
 import {
   currentUser, deleteMaterial, deleteSavedSearch, formatDate, formatTime, setMaterialStatus, timeAgo, toast, toggleSaved, unreadCount, useStore,
 } from '../lib/store'
@@ -16,6 +17,16 @@ export function Activity({ tab = 'acuerdos' }: { tab?: string }) {
   const state = useStore((s) => s)
   const me = currentUser(state)!
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  useRefresh(loadActivity, [])
+
+  /** Ejecuta una acción sobre un material; el botón queda deshabilitado mientras responde el servidor. */
+  const run = async (id: string, action: () => Promise<boolean>, okMessage?: string) => {
+    setBusy(id)
+    const ok = await action()
+    setBusy(null)
+    if (ok && okMessage) toast(okMessage)
+  }
 
   const data = useMemo(() => {
     const byId = new Map(state.materials.map((m) => [m.id, m]))
@@ -110,11 +121,11 @@ export function Activity({ tab = 'acuerdos' }: { tab?: string }) {
               </a>
               <div className="list-card__actions">
                 <button onClick={() => navigate(`#/publicar/${m.id}`)}><Icon name="edit" size={16} /> Editar</button>
-                {m.status === 'Disponible' && <button onClick={() => setMaterialStatus(m.id, 'Pausado')}><Icon name="pause" size={16} /> Pausar</button>}
-                {m.status === 'Pausado' && <button onClick={() => setMaterialStatus(m.id, 'Disponible')}><Icon name="refresh" size={16} /> Reactivar</button>}
-                {(m.status === 'Disponible' || m.status === 'Reservado') && <button onClick={() => { setMaterialStatus(m.id, 'Entregado'); toast('¡Genial! Marcado como entregado.') }}><Icon name="check" size={16} /> Entregado</button>}
+                {m.status === 'Disponible' && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Pausado'))}><Icon name="pause" size={16} /> Pausar</button>}
+                {m.status === 'Pausado' && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Disponible'))}><Icon name="refresh" size={16} /> Reactivar</button>}
+                {(m.status === 'Disponible' || m.status === 'Reservado') && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Entregado'), '¡Genial! Marcado como entregado.')}><Icon name="check" size={16} /> Entregado</button>}
                 {confirmDelete === m.id ? (
-                  <button className="is-danger" onClick={() => { deleteMaterial(m.id); setConfirmDelete(null); toast('Publicación eliminada') }}>¿Eliminar? Sí</button>
+                  <button className="is-danger" disabled={busy === m.id} onClick={() => run(m.id, () => deleteMaterial(m.id), 'Publicación eliminada').then(() => setConfirmDelete(null))}>¿Eliminar? Sí</button>
                 ) : (
                   <button onClick={() => setConfirmDelete(m.id)}><Icon name="trash" size={16} /> Eliminar</button>
                 )}
