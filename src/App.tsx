@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
-import { AppLogo, Avatar, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
+import { useEffect, useState } from 'react'
+import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
+import { setUnauthorizedHandler, waitForServer } from './lib/api'
 import { startAlerts } from './lib/alerts'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
-import { currentUser, processScheduled, unreadCount, useStore } from './lib/store'
+import { currentUser, logout, processScheduled, restoreSession, unreadCount, useStore } from './lib/store'
 import { Account, Notifications } from './screens/Account'
 import { Activity } from './screens/Activity'
 import { AgreementDetail, Schedule, Scheduled } from './screens/Agreement'
@@ -97,6 +98,42 @@ function MobileNav({ active }: { active: string }) {
   )
 }
 
+type Boot = 'checking' | 'slow' | 'offline' | 'ready'
+
+/** Espera al servidor (que puede estar "dormido" en el hosting gratuito) y confirma la sesión guardada. */
+function useBoot(hasCachedSession: boolean) {
+  const [boot, setBoot] = useState<Boot>('checking')
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    setBoot('checking')
+    waitForServer(() => !cancelled && setBoot('slow')).then(async (online) => {
+      if (cancelled) return
+      if (online) await restoreSession()
+      if (!cancelled) setBoot(online || hasCachedSession ? 'ready' : 'offline')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [attempt])
+  return { boot, retry: () => setAttempt((n) => n + 1) }
+}
+
+function BootScreen({ boot, onRetry }: { boot: Boot; onRetry: () => void }) {
+  return (
+    <div className="boot-screen" role="status" aria-live="polite">
+      <AppLogo />
+      {boot === 'slow' && <p>Conectando con el servidor…</p>}
+      {boot === 'offline' && (
+        <>
+          <p>No pudimos conectar con el servidor.</p>
+          <Button onClick={onRetry}>Reintentar</Button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function Screen({ route }: { route: Route }) {
   switch (route.name) {
     case 'material': return <Detail key={route.id} id={route.id} />
@@ -116,6 +153,14 @@ function Screen({ route }: { route: Route }) {
 export default function App() {
   const route = useRoute()
   const me = useStore(currentUser)
+  const { boot, retry } = useBoot(Boolean(me))
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      logout()
+      navigate('#/', { replace: true })
+    })
+  }, [])
 
   // Simulated replies and confirmations from other students.
   useEffect(() => {
@@ -141,6 +186,7 @@ export default function App() {
     return () => document.removeEventListener('click', onClick)
   }, [])
 
+  if (boot !== 'ready') return <><BootScreen boot={boot} onRetry={retry} /><Toasts /></>
   if (!me) return <><Auth /><Toasts /></>
 
   const active = tabOf(route)

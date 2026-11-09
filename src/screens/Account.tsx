@@ -105,10 +105,14 @@ function EditProfile({ onClose }: { onClose: () => void }) {
   const me = useStore(currentUser)!
   const [form, setForm] = useState({ name: me.name, career: me.career, cycle: me.cycle })
   const [error, setError] = useState('')
-  const submit = (e: FormEvent) => {
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (form.name.trim().split(/\s+/).length < 2) return setError('Escribe tu nombre y apellido.')
-    updateProfile({ ...form, name: form.name.trim() })
+    setBusy(true)
+    const saved = await updateProfile({ ...form, name: form.name.trim() })
+    setBusy(false)
+    if (!saved) return
     toast('Perfil actualizado')
     onClose()
   }
@@ -121,7 +125,7 @@ function EditProfile({ onClose }: { onClose: () => void }) {
           <Field label="Ciclo"><select value={form.cycle} onChange={(e) => setForm({ ...form, cycle: Number(e.target.value) })}>{CYCLES.map((c) => <option key={c} value={c}>{c}.° ciclo</option>)}</select></Field>
         </div>
         <Field label="Correo institucional" hint="El correo verificado no se puede cambiar."><input value={me.email} disabled /></Field>
-        <Button type="submit" className="full-button">Guardar cambios</Button>
+        <Button type="submit" className="full-button" disabled={busy}>Guardar cambios</Button>
       </form>
     </Sheet>
   )

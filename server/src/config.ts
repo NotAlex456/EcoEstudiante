@@ -24,7 +24,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, 'es obligatoria'),
   JWT_SECRET: z.string().min(32, 'debe tener al menos 32 caracteres'),
   PORT: z.coerce.number().int().positive().default(3000),
-  CORS_ORIGINS: z.string().default('http://localhost:8443,capacitor://localhost,https://localhost'),
+  CORS_ORIGINS: z.string().default('http://localhost:8443,http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,https://localhost'),
   PUBLIC_URL: z.string().default('http://localhost:3000'),
   AUTH_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   RESEND_API_KEY: optional,
