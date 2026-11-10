@@ -23,7 +23,7 @@ export function materialRoutes(hub: Hub, images: ImageStorage) {
   })
 
   router.post('/', auth, body(materialSchema), async (req, res) => {
-    res.status(201).json(await materials.create(currentUserId(req), req.body, images, hub.notifier))
+    res.status(201).json(await materials.create(currentUserId(req), req.body, images, hub))
   })
 
   router.patch('/:id', auth, body(materialSchema), async (req, res) => {

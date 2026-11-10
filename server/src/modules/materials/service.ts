@@ -5,6 +5,8 @@ import { prisma } from '../../db'
 import { toCondition, toMode } from '../../enums'
 import { AppError } from '../../errors'
 import type { ImageStorage } from '../../integrations/images'
+import { scheduleBuyerInterest } from '../../bots/schedule'
+import type { Hub } from '../../hub'
 import type { Notifier } from '../../notify/notify'
 import type { Realtime } from '../../realtime/socket'
 import { materialInclude, toMaterialDto, toMaterialDtos, type MaterialDto } from './dto'
@@ -99,7 +101,7 @@ export async function getVisible(id: string, viewerId?: string): Promise<Materia
   return toMaterialDto(material)
 }
 
-export async function create(ownerId: string, input: MaterialInput, images: ImageStorage, notifier: Notifier): Promise<MaterialDto> {
+export async function create(ownerId: string, input: MaterialInput, images: ImageStorage, hub: Hub): Promise<MaterialDto> {
   await checkImages(ownerId, input.images, images)
   const material = await prisma.material.create({
     data: {
@@ -109,7 +111,9 @@ export async function create(ownerId: string, input: MaterialInput, images: Imag
     },
     include: materialInclude,
   })
-  await notifySavedSearches(material.id, ownerId, input, notifier)
+  await notifySavedSearches(material.id, ownerId, input, hub.notifier)
+  // Como en la app de siempre: algún estudiante simulado se interesa en lo recién publicado.
+  await scheduleBuyerInterest(hub.config, material.id)
   return toMaterialDto(material)
 }
 
