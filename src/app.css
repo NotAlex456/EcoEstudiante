@@ -219,6 +219,9 @@ a.owner-card > .icon { margin-left:auto;color:var(--muted); }
 
 /* Auth */
 .auth { display:grid;grid-template-columns:1fr minmax(360px,460px);gap:50px;align-items:center;min-height:100vh;min-height:100dvh;padding:50px clamp(24px,6vw,90px);background:linear-gradient(125deg,#e6f2eb 0%,#f0f5ed 58%,#e9f1e8 100%); }
+.boot-screen { display:grid;place-content:center;justify-items:center;gap:18px;min-height:100vh;min-height:100dvh;padding:24px 16px;text-align:center;background:linear-gradient(125deg,#e6f2eb 0%,#f0f5ed 58%,#e9f1e8 100%); }
+.boot-screen p { margin:0;color:var(--muted); }
+.boot-screen .brand { color:var(--ink); }
 .auth__intro .brand { color:var(--ink); }
 .auth__intro .brand small { color:var(--muted); }
 .auth__intro .brand__mark { color:white; }

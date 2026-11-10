@@ -10,10 +10,7 @@ export type User = {
   email: string
   career: string
   cycle: number
-  passwordHash?: string
   verified: boolean
-  /** Verification code "sent" to the institutional email (simulated, no backend). */
-  pendingCode?: string
   createdAt: number
   /** Base reputation for seeded students; real ratings are added on top. */
   baseRating?: number

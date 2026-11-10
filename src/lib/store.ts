@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react'
+import { api, ApiError, getToken, setToken } from './api'
 import { createSeedState, simulatedReply, STATE_VERSION } from './data'
 import type { Agreement, Conversation, Material, ScheduledEvent, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
-export const INSTITUTIONAL_EMAIL = /^[a-z0-9._-]+@upsjb\.edu\.pe$/i
+import { INSTITUTIONAL_EMAIL } from '../../shared/constants'
+export { INSTITUTIONAL_EMAIL }
 
 export const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
@@ -112,86 +114,113 @@ export function unreadCount(s: State, conversation: Conversation, userId: string
 export const initials = (name: string) =>
   name.split(' ').filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase()
 
-/* ---------- auth ---------- */
+/* ---------- auth (servidor) ---------- */
 
-async function hashPassword(password: string) {
-  const data = new TextEncoder().encode(`eco:${password}`)
-  if (crypto?.subtle) {
-    const digest = await crypto.subtle.digest('SHA-256', data)
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
-  }
-  // Non-secure contexts (plain http on a LAN IP) lack crypto.subtle.
-  let h = 0
-  data.forEach((b) => (h = (Math.imul(31, h) + b) | 0))
-  return `w${h}`
+type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string }
+
+/** Guarda al usuario del servidor en la caché local y abre su sesión. */
+function adoptUser(me: MeDto) {
+  const user: User = { id: me.id, name: me.name, email: me.email, career: me.career, cycle: me.cycle, verified: true, createdAt: Date.parse(me.createdAt) }
+  setState((s) => ({ ...s, sessionUserId: user.id, users: [...s.users.filter((u) => u.id !== user.id), user] }))
 }
 
-export async function register(input: { name: string; email: string; career: string; cycle: number; password: string }) {
-  const email = input.email.trim().toLowerCase()
-  if (!INSTITUTIONAL_EMAIL.test(email)) return { error: 'Usa tu correo institucional (nombre.apellido@upsjb.edu.pe).' }
-  if (state.users.some((u) => u.email === email && u.passwordHash))
-    return { error: 'Ya existe una cuenta con este correo. Inicia sesión.' }
-  const code = String(Math.floor(100000 + Math.random() * 900000))
-  const user: User = {
-    id: uid('u'),
-    name: input.name.trim(),
-    email,
-    career: input.career,
-    cycle: input.cycle,
-    passwordHash: await hashPassword(input.password),
-    verified: false,
-    pendingCode: code,
-    createdAt: Date.now(),
-  }
-  setState((s) => ({ ...s, users: [...s.users.filter((u) => u.email !== email), user] }))
-  return { userId: user.id, code }
-}
-
-export function resendCode(userId: string) {
-  const code = String(Math.floor(100000 + Math.random() * 900000))
-  setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, pendingCode: code } : u)) }))
-  return code
-}
-
-export function verifyEmail(userId: string, code: string) {
-  const user = userById(state, userId)
-  if (!user || user.pendingCode !== code.trim()) return false
+function welcome(userId: string) {
   setState((s) => ({
     ...s,
-    sessionUserId: userId,
-    users: s.users.map((u) => (u.id === userId ? { ...u, verified: true, pendingCode: undefined } : u)),
     notifications: [
       ...s.notifications,
-      {
-        id: uid('n'), userId, at: Date.now(), read: false, link: '#/cuenta',
-        text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
-      },
+      { id: uid('n'), userId, at: Date.now(), read: false, link: '#/cuenta', text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.' },
     ],
   }))
-  return true
 }
 
-type LoginResult = { error: string } | { needsVerification: true; userId: string; code: string } | { ok: true }
+type Failure = { error: string; field?: string }
 
-export async function login(emailInput: string, password: string): Promise<LoginResult> {
-  const email = emailInput.trim().toLowerCase()
-  const user = state.users.find((u) => u.email === email && u.passwordHash)
-  if (!user || user.passwordHash !== (await hashPassword(password)))
-    return { error: 'Correo o contraseña incorrectos.' }
-  if (!user.verified) return { needsVerification: true, userId: user.id, code: resendCode(user.id) }
-  setState((s) => ({ ...s, sessionUserId: user.id }))
-  return { ok: true }
+/** Convierte un error de la API en un mensaje (y el campo del formulario al que corresponde). */
+function failure(error: unknown): Failure {
+  if (!(error instanceof ApiError)) return { error: 'Ocurrió un error inesperado. Inténtalo de nuevo.' }
+  const fields = error.details.fields as Record<string, string> | undefined
+  const [field, message] = Object.entries(fields ?? {})[0] ?? []
+  return field ? { error: message, field } : { error: error.message }
+}
+
+type AuthResponse = { token: string; user: MeDto }
+
+export async function register(input: { name: string; email: string; career: string; cycle: number; password: string }): Promise<Failure | { userId: string; devCode?: string }> {
+  try {
+    const { name, email, career, cycle, password } = input
+    return await api<{ userId: string; devCode?: string }>('POST', '/auth/register', { name, email, career, cycle, password })
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function resendCode(userId: string): Promise<Failure | { devCode?: string }> {
+  try {
+    return await api<{ devCode?: string }>('POST', '/auth/resend-code', { userId })
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** El servidor exige la misma contraseña del registro junto con el código. */
+export async function verifyEmail(userId: string, code: string, password: string): Promise<Failure | { ok: true }> {
+  try {
+    const { token, user } = await api<AuthResponse>('POST', '/auth/verify', { userId, code: code.trim(), password })
+    setToken(token)
+    adoptUser(user)
+    welcome(user.id)
+    return { ok: true }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+type LoginResult = Failure | { needsVerification: true; userId: string; devCode?: string } | { ok: true }
+
+export async function login(email: string, password: string): Promise<LoginResult> {
+  try {
+    const { token, user } = await api<AuthResponse>('POST', '/auth/login', { email, password })
+    setToken(token)
+    adoptUser(user)
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'EMAIL_NOT_VERIFIED')
+      return { needsVerification: true, userId: String(error.details.userId), devCode: error.details.devCode as string | undefined }
+    return failure(error)
+  }
+}
+
+/** Al abrir la app: confirma la sesión guardada con el servidor. Sin conexión, conserva la caché. */
+export async function restoreSession() {
+  if (!getToken()) {
+    if (state.sessionUserId) logout()
+    return
+  }
+  try {
+    adoptUser(await api<MeDto>('GET', '/auth/me'))
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) logout()
+  }
 }
 
 export function logout() {
+  setToken(null)
   setState((s) => ({ ...s, sessionUserId: null }))
 }
 
-export function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle'>) {
-  setState((s) => ({ ...s, users: s.users.map((u) => (u.id === s.sessionUserId ? { ...u, ...patch } : u)) }))
+export async function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle'>): Promise<boolean> {
+  try {
+    adoptUser(await api<MeDto>('PATCH', '/users/me', patch))
+    return true
+  } catch (error) {
+    toast(failure(error).error, 'error')
+    return false
+  }
 }
 
 export function resetDemo() {
+  setToken(null)
   localStorage.removeItem(STORAGE_KEY)
   state = createSeedState()
   persist()

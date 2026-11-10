@@ -3,6 +3,7 @@ dist/
 build/
 .cache/
 .env*
+!.env.example
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
@@ -28,3 +29,7 @@ logs/
 /.figaro/
 /.claude/
 /entrega/
+
+# Servidor
+server/.pg-data/
+server/uploads/
