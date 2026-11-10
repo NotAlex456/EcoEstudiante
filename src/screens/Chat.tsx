@@ -62,13 +62,20 @@ export function Chat({ id }: { id: string }) {
     <section className="chat page-enter">
       <header className="chat__header">
         <BackLink label="" fallback="#/actividad/mensajes" />
-        <a className="chat__who" href={`#/perfil/${other.id}`} aria-label={`Ver perfil y reseñas de ${other.name}`}>
-          <Avatar name={other.name} size="small" />
-          <div>
-            <strong>{other.name} <span className="verified"><Icon name="check" size={11} /></span></strong>
-            <small>{iAmBuyer ? 'Publicó este material' : 'Interesado/a en tu material'} · Ver perfil</small>
+        {other.deleted ? (
+          <div className="chat__who">
+            <Avatar name={other.name} size="small" />
+            <div><strong>{other.name}</strong><small>Esta cuenta ya no existe</small></div>
           </div>
-        </a>
+        ) : (
+          <a className="chat__who" href={`#/perfil/${other.id}`} aria-label={`Ver perfil y reseñas de ${other.name}`}>
+            <Avatar name={other.name} size="small" />
+            <div>
+              <strong>{other.name} <span className="verified"><Icon name="check" size={11} /></span></strong>
+              <small>{iAmBuyer ? 'Publicó este material' : 'Interesado/a en tu material'} · Ver perfil</small>
+            </div>
+          </a>
+        )}
       </header>
 
       <div className="chat__material">
@@ -76,7 +83,7 @@ export function Chat({ id }: { id: string }) {
           <img src={material.images[0]} alt="" />
           <div><strong>{material.title}</strong><span>{material.mode === 'Donación' ? 'Donación' : priceLabel(material)} · {material.status}</span></div>
         </a>
-        {iAmBuyer && !agreement && material.status === 'Disponible' && (
+        {iAmBuyer && !agreement && !other.deleted && material.status === 'Disponible' && (
           <Button className="chat__cta" onClick={() => navigate(`#/material/${material.id}/acordar`)}><Icon name="calendar" size={18} /> Acordar entrega</Button>
         )}
         {agreement && (
@@ -96,13 +103,13 @@ export function Chat({ id }: { id: string }) {
       </div>
 
       <div className="chat__composer">
-        <div className="quick-replies">
+        {!other.deleted && <div className="quick-replies">
           {quick.map((q) => <button key={q} disabled={sending} onClick={() => submit(undefined, q)}>{q}</button>)}
-        </div>
-        <form onSubmit={submit}>
+        </div>}
+        {other.deleted ? <p className="chat__closed">Esta cuenta fue eliminada. Ya no puedes escribirle.</p> : <form onSubmit={submit}>
           <input aria-label="Escribe un mensaje" placeholder="Escribe un mensaje..." value={text} onChange={(e) => setText(e.target.value)} enterKeyHint="send" />
           <button className="send-button" type="submit" aria-label="Enviar" disabled={!text.trim() || sending}><Icon name="send" size={20} /></button>
-        </form>
+        </form>}
       </div>
     </section>
   )

@@ -19,7 +19,7 @@ export function deleteAccountService(hub: Hub) {
   async function deleteAccount(userId: string, password: string) {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
     if (!(await bcrypt.compare(password, user.passwordHash)))
-      throw new AppError(401, 'INVALID_PASSWORD', 'La contraseña no es correcta.')
+      throw new AppError(403, 'INVALID_PASSWORD', 'La contraseña no es correcta.')
 
     const active = await prisma.agreement.findMany({
       where: { status: { in: ['Pendiente', 'Confirmado'] }, OR: [{ buyerId: userId }, { sellerId: userId }] },

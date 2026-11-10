@@ -15,6 +15,7 @@ import {
   type MessageDto,
 } from './sync'
 import { unregisterPush } from './push'
+import { forgetSeen } from './seen'
 import type { Conversation, Material, NotificationPrefs, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
@@ -237,6 +238,20 @@ export function logout() {
   unregisterPush() // sale antes de borrar la sesión
   setToken(null)
   setState((s) => ({ ...s, sessionUserId: null }))
+}
+
+/** Elimina la cuenta (pide la contraseña). Devuelve el error a mostrar, o null si se eliminó y se cerró la sesión. */
+export async function deleteAccount(password: string): Promise<string | null> {
+  const me = state.sessionUserId
+  try {
+    await api('DELETE', '/users/me', { password })
+  } catch (error) {
+    return failure(error).error
+  }
+  if (me) forgetSeen(me)
+  logout()
+  toast('Tu cuenta fue eliminada')
+  return null
 }
 
 export async function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle'>): Promise<boolean> {

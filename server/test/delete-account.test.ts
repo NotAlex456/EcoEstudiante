@@ -14,10 +14,11 @@ const deleteMe = (token: string, password = validRegistration.password) =>
 describe('eliminar mi cuenta', () => {
   beforeEach(resetDb)
 
-  it('con contraseña incorrecta responde 401 y no cambia nada', async () => {
+  // 403 y no 401: la app trata cualquier 401 como sesión vencida y cerraría la sesión.
+  it('con contraseña incorrecta responde 403 y no cambia nada', async () => {
     const { token } = await registerAndVerify(app)
     const res = await deleteMe(token, 'contraseña-mala-123')
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
     expect(res.body.error.code).toBe('INVALID_PASSWORD')
     expect((await request(app).get('/api/auth/me').set(authHeader(token))).status).toBe(200)
   })

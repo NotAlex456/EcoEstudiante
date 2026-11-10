@@ -546,6 +546,26 @@ anteriores dejan de servir al instante.
     y sus publicaciones se ocultan mientras dure el bloqueo. No se puede bloquear a otro administrador.
 - **Trazabilidad:** cada acción queda en `ModerationLog` y se ve en el resumen del panel.
 
+### 7.9 Eliminar mi cuenta
+
+En **Cuenta → Eliminar mi cuenta**, el estudiante confirma con su contraseña (`DELETE /api/users/me`).
+- **Cómo lo hace el servidor:** reutiliza el bloqueo. Con `blockedAt` ya se ocultan sus publicaciones y su perfil, y se cortan su sesión y su conexión en vivo. Además, en una sola transacción:
+  - guarda el nombre y el correo reales en `deletedName` y `deletedEmail`, que **solo ve el panel**;
+  - cambia el nombre a **"Usuario eliminado"** y el correo a `eliminado-<id>@eliminado.invalid`. Así **el correo queda libre** para registrarse de nuevo;
+  - reemplaza la contraseña por una aleatoria y sube `tokenVersion`;
+  - borra sus guardados, búsquedas, notificaciones, celulares registrados y códigos de correo, y los guardados de otros que apuntaban a sus materiales;
+  - cancela sus entregas en curso, devuelve a "Disponible" los materiales reservados y avisa a la otra persona.
+- **Lo que ven los demás:** sus chats, acuerdos terminados y reseñas siguen, firmados como "Usuario eliminado". No se le puede escribir: 409 `ACCOUNT_DELETED`, y la app muestra "Esta cuenta fue eliminada".
+- **En el panel:**
+  - aparece con la etiqueta "Cuenta eliminada", la fecha, y su nombre y correo originales;
+  - se puede buscar por ellos, no se puede desbloquear y no cuenta en el resumen;
+  - la acción queda en el registro de moderación (`delete_account`).
+- **La contraseña incorrecta responde 403, no 401:** la app trata cualquier 401 como "sesión vencida" y cerraría la sesión.
+
+**Contadores de la app:**
+- La **campana** muestra el número de avisos sin leer ("9+" desde 10).
+- **Actividad** suma los mensajes sin leer y los acuerdos que cambiaron desde la última vez que los viste. Lo visto se recuerda en el celular (`shared/activity.ts` y `src/lib/seen.ts`), y abrir la pestaña Acuerdos o un acuerdo los marca como vistos.
+
 ---
 
 ## 8. Seguridad
@@ -555,6 +575,7 @@ anteriores dejan de servir al instante.
 | Robo de contraseñas | **bcrypt** con *salt*: ni el servidor conoce las contraseñas |
 | Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código (y los correos de confianza de `ALLOWED_EMAILS`, también verificados) |
 | Contraseña olvidada o filtrada | Recuperación con código por correo; al cambiarla se cierran todas las sesiones (`tokenVersion`) |
+| Datos de quien se va | **Eliminar mi cuenta** (con contraseña): borra sus datos personales y libera el correo; el registro de lo que hizo queda solo para la administración |
 | Usuarios que abusan | Bloqueo desde el panel: corta su sesión y su conexión al instante y oculta sus publicaciones |
 | Panel de administración | Solo cuentas con rol `admin` (403 para el resto, comprobado en cada petición); el panel no se puede incrustar en otra página (`X-Frame-Options: DENY`) |
 | Adivinar el código | 6 dígitos, vence en 15 min, guardado con hash y máx. 5 intentos, reservados de forma atómica para que ni peticiones en paralelo los superen |
