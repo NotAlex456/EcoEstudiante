@@ -2,10 +2,10 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Field, Icon, Sheet, Stars } from '../components/ui'
 import { CAREERS, COMMUNITY_RULES, CYCLES, SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
-import { currentUser, getState, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
+import { currentUser, deleteAccount, getState, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
 import { loadNotifications, loadProfile, useRefresh } from '../lib/sync'
 import { AccessibilitySettings, NotificationSettings } from './Settings'
-import { Select } from '../components/inputs'
+import { PasswordInput, Select } from '../components/inputs'
 import { canInstall, installApp, useInstallState } from '../pwa'
 
 export function Account({ section }: { section?: string }) {
@@ -24,6 +24,7 @@ export function Account({ section }: { section?: string }) {
   if (section === 'seguridad') return <SafetyGuide />
   if (section === 'notificaciones') return <NotificationSettings />
   if (section === 'accesibilidad') return <AccessibilitySettings />
+  if (section === 'eliminar') return <DeleteAccount />
 
   const deals = agreements.filter((a) => a.status === 'Completado' && (a.buyerId === me.id || a.sellerId === me.id)).length
   const donations = materials.filter((m) => m.ownerId === me.id && m.mode === 'Donación').length
@@ -87,6 +88,7 @@ export function Account({ section }: { section?: string }) {
         <a href="#/actividad/guardados"><Icon name="search" /><span><strong>Alertas de búsqueda</strong><small>Avisos cuando publiquen lo que buscas</small></span><Icon name="chevron" size={18} /></a>
         <button onClick={() => setConfirmReset(true)}><Icon name="refresh" /><span><strong>Restablecer datos de demostración</strong><small>Borra cuentas, publicaciones y mensajes de este dispositivo</small></span><Icon name="chevron" size={18} /></button>
         <button onClick={() => { logout(); navigate('#/', { replace: true }) }}><Icon name="logout" /><span><strong>Cerrar sesión</strong><small>{me.email}</small></span><Icon name="chevron" size={18} /></button>
+        <a href="#/cuenta/eliminar" className="menu-list__danger"><Icon name="close" /><span><strong>Eliminar mi cuenta</strong><small>Borra tu cuenta y tus datos personales</small></span><Icon name="chevron" size={18} /></a>
       </div>
 
       <div className="community-note"><Icon name="leaf" size={26} /><div><strong>Gracias por ser parte del cambio</strong><p>Cada material que recircula es dinero ahorrado y un recurso que no se desperdicia.</p></div></div>
@@ -132,6 +134,51 @@ function EditProfile({ onClose }: { onClose: () => void }) {
         <Button type="submit" className="full-button" disabled={busy}>Guardar cambios</Button>
       </form>
     </Sheet>
+  )
+}
+
+/** Eliminar mi cuenta: explica qué se borra y qué queda, y confirma con la contraseña. */
+function DeleteAccount() {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!password) return setError('Escribe tu contraseña.')
+    setBusy(true)
+    const failed = await deleteAccount(password)
+    setBusy(false)
+    if (failed) return setError(failed)
+    navigate('#/', { replace: true })
+  }
+  return (
+    <section className="account-page page-enter">
+      <BackLink label="Mi cuenta" fallback="#/cuenta" />
+      <div className="page-title"><p className="eyebrow">Tu cuenta</p><h1>Eliminar mi cuenta</h1><p>Esta acción no se puede deshacer.</p></div>
+      <div className="delete-account">
+        <h3>Se borra</h3>
+        <ul>
+          <li>Tu nombre y correo dejan de aparecer: los demás verán "Usuario eliminado".</li>
+          <li>Tus publicaciones dejan de mostrarse y tu perfil desaparece.</li>
+          <li>Tus guardados, alertas de búsqueda, notificaciones y la sesión en todos tus dispositivos.</li>
+          <li>Tus entregas pendientes se cancelan y se avisa a la otra persona.</li>
+        </ul>
+        <h3>Se conserva solo para la administración</h3>
+        <ul>
+          <li>El registro de tus publicaciones, acuerdos y reseñas, por seguridad de la comunidad.</li>
+        </ul>
+        <p className="muted">Tu correo queda libre: podrás crear una cuenta nueva con él cuando quieras.</p>
+      </div>
+      <form onSubmit={submit} noValidate>
+        <Field label="Confirma con tu contraseña" error={error}>
+          <PasswordInput autoComplete="current-password" value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} placeholder="Tu contraseña" />
+        </Field>
+        <div className="form-actions form-actions--stack">
+          <Button type="submit" variant="danger" disabled={busy}>{busy ? 'Eliminando…' : 'Eliminar definitivamente'}</Button>
+          <Button variant="secondary" onClick={() => navigate('#/cuenta')}>Cancelar</Button>
+        </div>
+      </form>
+    </section>
   )
 }
 

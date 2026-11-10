@@ -7,7 +7,7 @@ import { api, ApiError } from './api'
 import { getState, updateCache } from './store'
 import type { Agreement, Conversation, Material, Message, Notification, SavedSearch, State, User } from './types'
 
-export type OwnerDto = { id: string; name: string; career: string; cycle: number; rating: { value: number; count: number } }
+export type OwnerDto = { id: string; name: string; career: string; cycle: number; rating: { value: number; count: number }; deleted?: boolean }
 
 export type MaterialDto = Omit<Material, 'createdAt'> & { createdAt: string; owner: OwnerDto }
 

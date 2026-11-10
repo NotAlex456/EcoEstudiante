@@ -1,8 +1,9 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { BackLink, Button, EmptyState, Field, Icon, MaterialSummary, Stars } from '../components/ui'
 import { Select } from '../components/inputs'
 import { SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
+import { markAgreementsSeen } from '../lib/seen'
 import {
   cancelAgreement, confirmAgreement, getState, confirmReception, currentUser, formatDate, formatTime, materialById, openConversation, proposeAgreement, rateAgreement, toISODate, userById, useStore,
 } from '../lib/store'
@@ -123,6 +124,10 @@ export function AgreementDetail({ id }: { id: string }) {
   const material = useStore((s) => (agreement ? materialById(s, agreement.materialId) : undefined))
   const otherId = agreement ? (agreement.buyerId === me.id ? agreement.sellerId : agreement.buyerId) : ''
   const other = useStore((s) => userById(s, otherId))
+  // Abrir un acuerdo lo marca como visto (también cuando cambia mientras lo miras).
+  useEffect(() => {
+    if (agreement) markAgreementsSeen(me.id, [agreement])
+  }, [me.id, agreement])
   const [stars, setStars] = useState(5)
   const [comment, setComment] = useState('')
   const [confirmCancel, setConfirmCancel] = useState(false)

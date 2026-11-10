@@ -41,7 +41,7 @@ export async function api<T>(method: 'GET' | 'POST' | 'DELETE', path: string, bo
   return data as T
 }
 
-export type Owner = { id: string; name: string; email: string; blocked: boolean; rating: { value: number; count: number } }
+export type Owner = { id: string; name: string; email: string; blocked: boolean; deleted?: boolean; rating: { value: number; count: number } }
 export type AdminMaterial = {
   id: string
   title: string
@@ -73,6 +73,9 @@ export type AdminUser = {
   cycle: number
   role: 'student' | 'admin'
   blocked: boolean
+  /** Cuenta eliminada por su dueño: name y email son los originales. */
+  deleted: boolean
+  deletedAt: string | null
   createdAt: string
   materials: number
   rating: { value: number; count: number }

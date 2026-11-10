@@ -88,6 +88,8 @@ export function conversationService(hub: Hub) {
     const c = await participating(conversationId, senderId)
     const isBuyer = c.buyerId === senderId
     const otherId = isBuyer ? c.sellerId : c.buyerId
+    const recipient = await prisma.user.findUniqueOrThrow({ where: { id: otherId }, select: { deletedAt: true } })
+    if (recipient.deletedAt) throw new AppError(409, 'ACCOUNT_DELETED', 'Esta cuenta fue eliminada.')
     const message = await prisma.$transaction(async (tx) => {
       const created = await tx.message.create({ data: { conversationId, senderId, text } })
       await tx.conversation.update({

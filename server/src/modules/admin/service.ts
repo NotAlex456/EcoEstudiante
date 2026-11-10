@@ -9,7 +9,7 @@ import { emitMaterialUpdated, materialNotFound, removeAsAdmin } from '../materia
 
 const PAGE = 20
 
-export type AdminMaterialDto = MaterialDto & { moderatedAt: string | null; owner: OwnerDto & { email: string; blocked: boolean } }
+export type AdminMaterialDto = MaterialDto & { moderatedAt: string | null; owner: OwnerDto & { email: string; blocked: boolean; deleted: boolean } }
 export type AdminReportDto = {
   id: string
   reason: string
@@ -28,6 +28,9 @@ export type AdminUserDto = {
   cycle: number
   role: 'student' | 'admin'
   blocked: boolean
+  /** Cuenta eliminada por su dueño: `name` y `email` son los originales (solo el panel los ve). */
+  deleted: boolean
+  deletedAt: string | null
   createdAt: string
   materials: number
   rating: { value: number; count: number }
@@ -36,12 +39,18 @@ export type AdminUserDto = {
 const reportNotFound = () => new AppError(404, 'REPORT_NOT_FOUND', 'Este reporte ya no existe.')
 const userNotFound = () => new AppError(404, 'USER_NOT_FOUND', 'Este estudiante no existe.')
 
+/** Nombre y correo reales: los de una cuenta eliminada quedan en deletedName/deletedEmail. */
+const realIdentity = (u: { name: string; email: string; deletedName: string | null; deletedEmail: string | null }) => ({
+  name: u.deletedName ?? u.name,
+  email: u.deletedEmail ?? u.email,
+})
+
 async function toAdminMaterials(rows: MaterialWithRelations[]): Promise<AdminMaterialDto[]> {
   const dtos = await toMaterialDtos(rows)
   return dtos.map((dto, i) => ({
     ...dto,
     moderatedAt: rows[i].moderatedAt?.toISOString() ?? null,
-    owner: { ...dto.owner, email: rows[i].owner.email, blocked: Boolean(rows[i].owner.blockedAt) },
+    owner: { ...dto.owner, ...realIdentity(rows[i].owner), blocked: Boolean(rows[i].owner.blockedAt), deleted: Boolean(rows[i].owner.deletedAt) },
   }))
 }
 
@@ -53,7 +62,7 @@ export function adminService(hub: Hub, images: ImageStorage) {
 
   async function stats() {
     const [students, activeMaterials, completedAgreements, pendingReports] = await Promise.all([
-      prisma.user.count({ where: { isBot: false, verified: true } }),
+      prisma.user.count({ where: { isBot: false, verified: true, deletedAt: null } }),
       prisma.material.count({ where: { status: { in: ['Disponible', 'Reservado'] } } }),
       prisma.agreement.count({ where: { status: 'Completado' } }),
       prisma.report.count({ where: { resolvedAt: null } }),
@@ -70,6 +79,7 @@ export function adminService(hub: Hub, images: ImageStorage) {
               { title: { contains: query.q, mode: 'insensitive' } },
               { category: { contains: query.q, mode: 'insensitive' } },
               { owner: { name: { contains: query.q, mode: 'insensitive' } } },
+              { owner: { deletedName: { contains: query.q, mode: 'insensitive' } } },
             ],
           }
         : {}),
@@ -144,7 +154,7 @@ export function adminService(hub: Hub, images: ImageStorage) {
       resolvedAt: r.resolvedAt?.toISOString() ?? null,
       resolution: r.resolution,
       material: mats[i],
-      reporter: { id: r.user.id, name: r.user.name, email: r.user.email },
+      reporter: { id: r.user.id, ...realIdentity(r.user) },
     }))
   }
 
@@ -171,7 +181,11 @@ export function adminService(hub: Hub, images: ImageStorage) {
         isBot: false,
         verified: true,
         ...(query.q
-          ? { OR: [{ name: { contains: query.q, mode: 'insensitive' } }, { email: { contains: query.q, mode: 'insensitive' } }] }
+          ? {
+              OR: (['name', 'email', 'deletedName', 'deletedEmail'] as const).map((field) => ({
+                [field]: { contains: query.q, mode: 'insensitive' as const },
+              })),
+            }
           : {}),
       },
       include: { _count: { select: { materials: { where: { status: { not: 'Eliminado' } } } } } },
@@ -184,12 +198,13 @@ export function adminService(hub: Hub, images: ImageStorage) {
     return {
       items: page.map((u) => ({
         id: u.id,
-        name: u.name,
-        email: u.email,
+        ...realIdentity(u),
         career: u.career,
         cycle: u.cycle,
         role: u.role,
         blocked: Boolean(u.blockedAt),
+        deleted: Boolean(u.deletedAt),
+        deletedAt: u.deletedAt?.toISOString() ?? null,
         createdAt: u.createdAt.toISOString(),
         materials: u._count.materials,
         rating: ratings.get(u.id) ?? { value: 0, count: 0 },
@@ -226,13 +241,14 @@ export function adminService(hub: Hub, images: ImageStorage) {
   async function unblockUser(adminId: string, userId: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } })
     if (!user || user.isBot) throw userNotFound()
+    if (user.deletedAt) throw new AppError(409, 'ACCOUNT_DELETED', 'Esta cuenta fue eliminada: no se puede desbloquear.')
     await prisma.user.update({ where: { id: userId }, data: { blockedAt: null } })
     await log(adminId, 'unblock_user', userId)
   }
 
   async function moderationLog() {
     const rows = await prisma.moderationLog.findMany({
-      include: { admin: { select: { id: true, name: true } } },
+      include: { admin: { select: { id: true, name: true, email: true, deletedName: true, deletedEmail: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 50,
     })
@@ -242,7 +258,8 @@ export function adminService(hub: Hub, images: ImageStorage) {
       targetId: r.targetId,
       reason: r.reason,
       createdAt: r.createdAt.toISOString(),
-      admin: r.admin,
+      // Nombre real aunque la cuenta (de un estudiante o de un admin) se haya eliminado después.
+      admin: { id: r.admin.id, name: realIdentity(r.admin).name },
     }))
   }
 

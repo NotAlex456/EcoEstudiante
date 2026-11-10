@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Avatar, Button, EmptyState, Icon, MaterialCard } from '../components/ui'
 import { navigate } from '../lib/router'
+import { markAgreementsSeen } from '../lib/seen'
 import { loadActivity, loadAgreements, loadConversations, useRefresh } from '../lib/sync'
 import {
   currentUser, deleteMaterial, deleteSavedSearch, formatDate, formatTime, setMaterialStatus, timeAgo, toast, toggleSaved, unreadCount, useStore,
@@ -44,6 +45,11 @@ export function Activity({ tab = 'acuerdos' }: { tab?: string }) {
   }, [state, me.id])
 
   const unread = data.conversations.reduce((n, c) => n + unreadCount(state, c, me.id), 0)
+
+  // Ver la pestaña Acuerdos los marca como vistos: el número de Actividad deja de contarlos.
+  useEffect(() => {
+    if (tab === 'acuerdos') markAgreementsSeen(me.id, data.agreements)
+  }, [tab, me.id, data.agreements])
 
   return (
     <section className="activity-page page-enter">

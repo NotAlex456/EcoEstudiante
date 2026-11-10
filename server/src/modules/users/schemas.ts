@@ -22,3 +22,5 @@ export const updateMeSchema = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), 'Envía al menos un dato para actualizar.')
 
 export type UpdateMeInput = z.infer<typeof updateMeSchema>
+
+export const deleteMeSchema = z.object({ password: z.string().min(1, 'Escribe tu contraseña.').max(200) }).strict()

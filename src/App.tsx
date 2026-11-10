@@ -9,6 +9,8 @@ import { registerPush } from './lib/push'
 import { connectSocket, disconnectSocket } from './lib/socket'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
 import { currentUser, logout, restoreSession, unreadCount, useStore } from './lib/store'
+import { useSeenAgreements } from './lib/seen'
+import { badgeText, newAgreementsCount } from '../shared/activity'
 import { Account, Notifications } from './screens/Account'
 import { Activity } from './screens/Activity'
 import { AgreementDetail, Schedule, Scheduled } from './screens/Agreement'
@@ -26,14 +28,15 @@ const navItems: { id: string; hash: string; label: string; short: string; icon: 
   { id: 'account', hash: '#/cuenta', label: 'Mi cuenta', short: 'Cuenta', icon: 'user' },
 ]
 
+/** Globitos: avisos sin leer y, en Actividad, mensajes sin leer más acuerdos que cambiaron desde que los viste. */
 function useBadges() {
   const state = useStore((s) => s)
   const me = currentUser(state)
+  const seen = useSeenAgreements(me?.id ?? '')
   if (!me) return { notifications: 0, activity: 0 }
   const notifications = state.notifications.filter((n) => n.userId === me.id && !n.read).length
   const messages = state.conversations.filter((c) => c.participants.includes(me.id)).reduce((n, c) => n + unreadCount(state, c, me.id), 0)
-  const toRate = state.agreements.filter((a) => a.buyerId === me.id && (a.status === 'Confirmado' || (a.status === 'Completado' && !a.rating))).length
-  return { notifications, activity: messages + toRate }
+  return { notifications, activity: messages + newAgreementsCount(state.agreements, me.id, seen) }
 }
 
 function Sidebar({ active }: { active: string }) {
@@ -48,12 +51,12 @@ function Sidebar({ active }: { active: string }) {
           <a key={item.id} href={item.hash} className={active === item.id ? 'is-active' : ''} aria-current={active === item.id ? 'page' : undefined}>
             <Icon name={item.icon} />
             <span>{item.label}</span>
-            {item.id === 'activity' && badges.activity > 0 && <span className="count-badge">{badges.activity}</span>}
+            {item.id === 'activity' && badges.activity > 0 && <span className="count-badge">{badgeText(badges.activity)}</span>}
           </a>
         ))}
         <a href="#/notificaciones" className={active === 'notifications' ? 'is-active' : ''}>
           <Icon name="bell" /><span>Notificaciones</span>
-          {badges.notifications > 0 && <span className="count-badge">{badges.notifications}</span>}
+          {badges.notifications > 0 && <span className="count-badge">{badgeText(badges.notifications)}</span>}
         </a>
       </nav>
       <div className="sidebar__impact">
@@ -78,7 +81,7 @@ function Topbar() {
       <div className="topbar__actions">
         <a href="#/notificaciones" aria-label={`Notificaciones${notifications ? `, ${notifications} sin leer` : ''}`}>
           <Icon name="bell" size={21} />
-          {notifications > 0 && <i />}
+          {notifications > 0 && <span className="count-badge" aria-hidden="true">{badgeText(notifications)}</span>}
         </a>
         <a href="#/cuenta" aria-label="Mi cuenta"><Avatar name={me.name} size="small" /></a>
       </div>
@@ -120,7 +123,7 @@ function MobileNav({ active }: { active: string }) {
         <a key={item.id} href={item.hash} className={active === item.id ? 'is-active' : ''} aria-current={active === item.id ? 'page' : undefined}>
           <span className="mobile-nav__icon">
             <Icon name={item.icon} size={21} />
-            {item.id === 'activity' && activity > 0 && <span className="count-badge">{activity}</span>}
+            {item.id === 'activity' && activity > 0 && <span className="count-badge">{badgeText(activity)}</span>}
           </span>
           <span>{item.short}</span>
         </a>

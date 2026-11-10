@@ -15,6 +15,7 @@ import {
   type MessageDto,
 } from './sync'
 import { unregisterPush } from './push'
+import { forgetSeen, markAgreementsSeen } from './seen'
 import type { Conversation, Material, NotificationPrefs, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
@@ -239,6 +240,20 @@ export function logout() {
   setState((s) => ({ ...s, sessionUserId: null }))
 }
 
+/** Elimina la cuenta (pide la contraseña). Devuelve el error a mostrar, o null si se eliminó y se cerró la sesión. */
+export async function deleteAccount(password: string): Promise<string | null> {
+  const me = state.sessionUserId
+  try {
+    await api('DELETE', '/users/me', { password })
+  } catch (error) {
+    return failure(error).error
+  }
+  if (me) forgetSeen(me)
+  logout()
+  toast('Tu cuenta fue eliminada')
+  return null
+}
+
 export async function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle'>): Promise<boolean> {
   try {
     adoptUser(await api<MeDto>('PATCH', '/users/me', patch))
@@ -440,9 +455,13 @@ export function markConversationRead(conversationId: string) {
 
 /* ---------- agreements (servidor) ---------- */
 
-/** Aplica la respuesta del servidor y, si cambió, el estado del material en la caché. */
+/**
+ * Aplica la respuesta del servidor y, si cambió, el estado del material en la caché. Es siempre una acción propia,
+ * así que el acuerdo queda como visto: lo que haces tú no sube tu número de Actividad.
+ */
 function applyAgreement(dto: AgreementDto, materialStatus?: Material['status']) {
   adoptAgreement(dto)
+  if (state.sessionUserId) markAgreementsSeen(state.sessionUserId, [{ id: dto.id, updatedAt: Date.parse(dto.updatedAt) }])
   if (materialStatus) setCachedMaterialStatus(dto.materialId, materialStatus)
 }
 

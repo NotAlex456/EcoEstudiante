@@ -20,6 +20,8 @@ export type User = {
   cycle: number
   verified: boolean
   createdAt: number
+  /** La cuenta fue eliminada: aparece como "Usuario eliminado" y no se le puede escribir. */
+  deleted?: boolean
   /** Reputación calculada por el servidor (reseñas recibidas). */
   rating?: { value: number; count: number }
   /** Solo del usuario con sesión. */
