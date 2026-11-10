@@ -3,7 +3,8 @@
 Aplicación móvil para que los estudiantes de la **UPSJB – Chincha** compren a bajo costo, intercambien o donen
 materiales académicos (libros, apuntes, calculadoras y separatas) y así reutilicen recursos dentro del campus.
 
-> **Autor:** Deyver Martínez · **Curso:** _(nombre del curso)_ · **Docente:** _(nombre del docente)_
+> **Autor:** Deyver Martínez · **Curso:** Creatividad Digital · **Docente:** Ivan Eduardo Anchante Reyes
+
 
 ## Probar la app
 
