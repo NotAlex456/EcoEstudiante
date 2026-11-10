@@ -33,6 +33,8 @@ enum ModerationAction {
   block_user
   unblock_user
   dismiss_report
+  /// El propio estudiante eliminó su cuenta (adminId = su id).
+  delete_account
 }
 
 enum Condition {
@@ -86,6 +88,10 @@ model User {
   tokenVersion      Int      @default(0)
   /// Cuenta suspendida por un administrador.
   blockedAt         DateTime?
+  /// Cuenta eliminada por su dueño. El nombre y correo reales quedan aquí, solo para el panel de administración.
+  deletedAt         DateTime?
+  deletedName       String?
+  deletedEmail      String?
   createdAt         DateTime @default(now())
 
   emailCodes        EmailCode[]

@@ -67,7 +67,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   })
 
   app.use('/api/auth', authRoutes({ config, mailer, notifier, realtime }))
-  app.use('/api/users', myMaterialsRoute(config), userRoutes(config))
+  app.use('/api/users', myMaterialsRoute(config), userRoutes(hub))
   app.use('/api/uploads', uploadRoutes(config, images))
   app.use('/api/materials', materialRoutes(hub, images))
   app.use('/api/saved', savedRoutes(config))
