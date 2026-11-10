@@ -220,3 +220,12 @@ describe('cuentas eliminadas en el panel', () => {
     expect(item.owner).toMatchObject({ name: 'Beto Díaz', email: 'beto.diaz@upsjb.edu.pe', deleted: true })
   })
 })
+
+describe('registro de moderación con cuentas eliminadas', () => {
+  it('muestra el nombre real de quien eliminó su cuenta', async () => {
+    await request(app).delete('/api/users/me').set(auth(beto.token)).send({ password: validRegistration.password })
+    const log = await admin('get', '/log')
+    const entry = log.body.find((l: { action: string }) => l.action === 'delete_account')
+    expect(entry.admin.name).toBe('Beto Díaz')
+  })
+})

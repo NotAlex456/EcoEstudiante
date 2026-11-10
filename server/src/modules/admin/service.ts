@@ -248,7 +248,7 @@ export function adminService(hub: Hub, images: ImageStorage) {
 
   async function moderationLog() {
     const rows = await prisma.moderationLog.findMany({
-      include: { admin: { select: { id: true, name: true } } },
+      include: { admin: { select: { id: true, name: true, email: true, deletedName: true, deletedEmail: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 50,
     })
@@ -258,7 +258,8 @@ export function adminService(hub: Hub, images: ImageStorage) {
       targetId: r.targetId,
       reason: r.reason,
       createdAt: r.createdAt.toISOString(),
-      admin: r.admin,
+      // Nombre real aunque la cuenta (de un estudiante o de un admin) se haya eliminado después.
+      admin: { id: r.admin.id, name: realIdentity(r.admin).name },
     }))
   }
 

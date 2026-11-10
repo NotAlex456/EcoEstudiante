@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { prisma } from '../../db'
@@ -21,41 +22,57 @@ export function deleteAccountService(hub: Hub) {
     if (!(await bcrypt.compare(password, user.passwordHash)))
       throw new AppError(403, 'INVALID_PASSWORD', 'La contraseña no es correcta.')
 
-    const active = await prisma.agreement.findMany({
-      where: { status: { in: ['Pendiente', 'Confirmado'] }, OR: [{ buyerId: userId }, { sellerId: userId }] },
-      select: { id: true, materialId: true, status: true },
-    })
     const now = new Date()
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          deletedAt: now,
-          blockedAt: now,
-          deletedName: user.name,
-          deletedEmail: user.email,
-          name: DELETED_NAME,
-          email: deletedEmailFor(userId),
-          passwordHash: await bcrypt.hash(crypto.randomUUID(), 10),
-          tokenVersion: { increment: 1 },
-        },
-      }),
-      prisma.review.updateMany({ where: { authorId: userId }, data: { authorName: DELETED_NAME } }),
-      prisma.savedMaterial.deleteMany({ where: { OR: [{ userId }, { material: { ownerId: userId } }] } }),
-      prisma.savedSearch.deleteMany({ where: { userId } }),
-      prisma.notification.deleteMany({ where: { userId } }),
-      prisma.deviceToken.deleteMany({ where: { userId } }),
-      prisma.emailCode.deleteMany({ where: { userId } }),
-      prisma.agreement.updateMany({ where: { id: { in: active.map((a) => a.id) } }, data: { status: 'Cancelado' } }),
-      // Un material reservado por una entrega cancelada vuelve a estar disponible.
-      prisma.material.updateMany({
-        where: { id: { in: active.filter((a) => a.status === 'Confirmado').map((a) => a.materialId) }, status: 'Reservado' },
-        data: { status: 'Disponible' },
-      }),
-      prisma.moderationLog.create({ data: { adminId: userId, action: 'delete_account', targetId: userId } }),
-    ])
+    const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10)
+    // Lectura y escritura en la misma transacción (Serializable): si la otra persona completa o confirma la entrega
+    // justo en ese momento, una de las dos operaciones falla en vez de dejar datos inconsistentes.
+    const cancelled = await prisma
+      .$transaction(
+      async (tx) => {
+        const active = await tx.agreement.findMany({
+          where: { status: { in: ['Pendiente', 'Confirmado'] }, OR: [{ buyerId: userId }, { sellerId: userId }] },
+          select: { id: true, materialId: true, status: true },
+        })
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            deletedAt: now,
+            blockedAt: now,
+            deletedName: user.name,
+            deletedEmail: user.email,
+            name: DELETED_NAME,
+            email: deletedEmailFor(userId),
+            passwordHash,
+            tokenVersion: { increment: 1 },
+          },
+        })
+        await tx.review.updateMany({ where: { authorId: userId }, data: { authorName: DELETED_NAME } })
+        await tx.savedMaterial.deleteMany({ where: { OR: [{ userId }, { material: { ownerId: userId } }] } })
+        await tx.savedSearch.deleteMany({ where: { userId } })
+        await tx.notification.deleteMany({ where: { userId } })
+        await tx.deviceToken.deleteMany({ where: { userId } })
+        await tx.emailCode.deleteMany({ where: { userId } })
+        await tx.agreement.updateMany({
+          where: { id: { in: active.map((a) => a.id) }, status: { in: ['Pendiente', 'Confirmado'] } },
+          data: { status: 'Cancelado' },
+        })
+        // Un material reservado por una entrega cancelada vuelve a estar disponible.
+        await tx.material.updateMany({
+          where: { id: { in: active.filter((a) => a.status === 'Confirmado').map((a) => a.materialId) }, status: 'Reservado' },
+          data: { status: 'Disponible' },
+        })
+        await tx.moderationLog.create({ data: { adminId: userId, action: 'delete_account', targetId: userId } })
+        return active.map((a) => a.id)
+      },
+      { isolationLevel: 'Serializable' },
+      )
+      .catch((error) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034')
+          throw new AppError(409, 'TRY_AGAIN', 'Una de tus entregas cambió justo ahora. Inténtalo de nuevo.')
+        throw error
+      })
     hub.realtime.disconnectUser(userId)
-    await agreements.announceCancelled(active.map((a) => a.id), userId, { byDeletion: true })
+    await agreements.announceCancelled(cancelled, userId, { byDeletion: true })
   }
 
   return { deleteAccount }

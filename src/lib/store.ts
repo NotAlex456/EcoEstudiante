@@ -15,7 +15,7 @@ import {
   type MessageDto,
 } from './sync'
 import { unregisterPush } from './push'
-import { forgetSeen } from './seen'
+import { forgetSeen, markAgreementsSeen } from './seen'
 import type { Conversation, Material, NotificationPrefs, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
@@ -455,9 +455,13 @@ export function markConversationRead(conversationId: string) {
 
 /* ---------- agreements (servidor) ---------- */
 
-/** Aplica la respuesta del servidor y, si cambió, el estado del material en la caché. */
+/**
+ * Aplica la respuesta del servidor y, si cambió, el estado del material en la caché. Es siempre una acción propia,
+ * así que el acuerdo queda como visto: lo que haces tú no sube tu número de Actividad.
+ */
 function applyAgreement(dto: AgreementDto, materialStatus?: Material['status']) {
   adoptAgreement(dto)
+  if (state.sessionUserId) markAgreementsSeen(state.sessionUserId, [{ id: dto.id, updatedAt: Date.parse(dto.updatedAt) }])
   if (materialStatus) setCachedMaterialStatus(dto.materialId, materialStatus)
 }
 
