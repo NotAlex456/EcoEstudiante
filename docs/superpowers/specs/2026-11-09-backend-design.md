@@ -428,6 +428,12 @@ Cada etapa termina con pruebas pasando y la app funcionando de punta a punta par
 3. **Chat y acuerdos:** conversaciones, mensajes, Socket.IO, acuerdos, reseñas, reputación, `notify` (sin push) y
    notificaciones en la app. Pantallas Chat y Agreement.
 4. **Bots:** `BotJob`, worker y los tres tipos de trabajo.
+
+   Las etapas 3 y 4 se construyeron juntas (casi todas las publicaciones de la demo son de bots). Textos de las
+   notificaciones: mensaje "`<Nombre> te escribió: “<texto>”`"; acuerdos "`<Nombre> propuso entregar “<título>” en
+   <lugar>.`", "`<Nombre> confirmó la entrega en <lugar>.`", "`<Nombre> canceló la entrega de “<título>”.`" y
+   "`<Nombre> confirmó que recibió “<título>”.`". Los mensajes que acompañan a una acción (la propuesta y la
+   confirmación del bot) no generan un aviso de mensaje aparte.
 5. **Push y despliegue:** Firebase, `DeviceToken`, preferencias en el servidor, ajustes, Neon y Render, APK 2.0 y README.
 
 ## 10. Entregable de documentación

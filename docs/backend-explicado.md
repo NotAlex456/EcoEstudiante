@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** etapas 1 (base) y 2 (materiales y fotos) construidas: servidor, base de datos, registro con verificación de correo, perfiles, publicaciones con fotos, búsqueda con filtros, guardados, alertas de búsqueda y reportes. Las etapas 3 a 5 están pendientes (§10). Este documento se actualiza al terminar cada una.
+> **Estado:** etapas 1 a 4 construidas: servidor, base de datos, registro con verificación de correo, perfiles, publicaciones con fotos, búsqueda con filtros, guardados, alertas, reportes, chat en tiempo real, acuerdos de entrega, reseñas, notificaciones dentro de la app y estudiantes simulados en el servidor. Falta la etapa 5 (push con la app cerrada y despliegue, §10). Este documento se actualiza al terminar cada una.
 
 ## Índice
 
@@ -414,14 +414,36 @@ Los mensajes se **envían por HTTP** y el WebSocket solo se usa para **avisar**.
 validación y queda guardada antes de avisar. Si una app pierde la conexión, al reconectarse vuelve a pedir sus chats y
 no pierde nada.
 
+Detalles de lo construido:
+
+- **Una conversación por material y comprador** (`@@unique([materialId, buyerId])`). Pulsar "Contactar" dos veces
+  devuelve la misma.
+- **Conectarse al socket exige el token**: el servidor lo verifica en el *handshake* y comprueba que el usuario exista
+  y esté verificado. Cada socket entra a la sala `user:<id>`, y el servidor solo emite a las salas de los participantes.
+- **Quien no participa recibe 404**, no 403: así ni siquiera puede saber si ese chat existe.
+- **Mensajes paginados** de a 50 (`?before=<fecha>`), y **no leídos** contados por el servidor a partir de la última
+  lectura de cada participante (`buyerReadAt`, `sellerReadAt`).
+- **Reconexión:** si se reinicia el servidor o se corta la red, al volver el socket la app pide de nuevo conversaciones,
+  acuerdos y notificaciones (`syncAll`). Se probó insertando mensajes con el servidor apagado: aparecieron solos al
+  volver.
+
 ### 7.4 Acordar una entrega
 
 1. El comprador propone lugar (uno de los **puntos seguros** del campus), fecha y hora: `POST /agreements`.
-2. El servidor comprueba que el material esté **Disponible**, que no haya otro acuerdo activo y que la fecha no sea pasada.
-3. Se publica en el chat el mensaje "📍 Propuesta de entrega…" y se avisa al vendedor.
-4. El vendedor confirma, y el material pasa a **Reservado**.
+2. El servidor comprueba la fecha con la **hora de Lima**: que no haya pasado, que sea entre 7:00 a. m. y 9:00 p. m. y
+   que no sea domingo. También comprueba que el material esté **Disponible** y que no haya otro acuerdo activo.
+3. Se publica en el chat el mensaje "📍 Propuesta de entrega…" y se avisa al vendedor ("Beto propuso entregar…").
+4. El vendedor pulsa **"Confirmar entrega"**, y el material pasa a **Reservado**. Si el vendedor es un bot, confirma solo.
 5. Tras la entrega, el comprador confirma la recepción, y el material pasa a **Entregado**.
-6. El comprador deja la **reseña**, que actualiza la reputación del vendedor.
+6. El comprador deja la **reseña** (1 a 5 estrellas), que actualiza la reputación del vendedor. Solo una por acuerdo.
+
+Cualquiera de los dos puede **cancelar** mientras esté Pendiente o Confirmado; si el material estaba Reservado, vuelve a
+Disponible. Cada cambio se avisa por socket a ambos (`agreement:updated`) y, si cambia el material, a todos los que
+conversan sobre él (`material:updated`).
+
+Cada transición se hace de forma **atómica**: se actualiza el acuerdo solo si sigue en el estado esperado
+(`UPDATE … WHERE status = 'Pendiente'`). Si dos peticiones llegan a la vez, la segunda no encuentra nada que cambiar y
+responde 409.
 
 ### 7.5 Notificaciones: un solo punto de entrada
 
@@ -443,6 +465,10 @@ flowchart TD
 
 Así el usuario **nunca recibe el mismo aviso dos veces**, y ningún módulo necesita saber si existe el WebSocket o el push.
 
+En las etapas 3 y 4 está construida la parte del WebSocket: el aviso se guarda y, si la categoría está activa, llega en
+vivo con la ventana emergente. La rama del push (app cerrada) se agrega en la etapa 5. Las notificaciones que la app
+carga al abrirse se muestran en la lista, sin ventana emergente, para no repetir avisos ya vistos.
+
 ### 7.6 Estudiantes simulados (bots)
 
 - Son usuarios normales marcados con `isBot = true`.
@@ -459,6 +485,16 @@ Lo importante para la sustentación: los bots **usan exactamente los mismos serv
 chat, los avisos y el push funcionan con ellos sin código especial. Y como los trabajos se guardan en la base de datos,
 sobreviven a un reinicio del servidor.
 
+Dos reglas del worker:
+
+- **Cada trabajo se reserva antes de ejecutarse** (se marca `doneAt` con un `UPDATE … WHERE doneAt IS NULL`). Aunque
+  falle o haya dos workers, nunca se ejecuta dos veces.
+- **Si ya no aplica, no hace nada:** si cancelaste el acuerdo antes de que el bot lo confirmara, o pausaste el material
+  antes de que un bot se interesara, el trabajo se marca hecho sin cambiar nada.
+
+Las frases de los bots viven en `shared/bot-replies.ts`, el mismo archivo que antes usaba la app, así que responden
+igual que siempre. Se activan con `BOTS_ENABLED=true`.
+
 ---
 
 ## 8. Seguridad
@@ -473,6 +509,9 @@ sobreviven a un reinicio del servidor.
 | Fuerza bruta en el login | **Rate limiting**: 10 intentos por minuto por IP. Mensaje idéntico para "correo no existe" y "contraseña incorrecta" |
 | Suplantar a otro usuario | **JWT firmado**: si se altera, la firma deja de coincidir |
 | Editar o leer lo ajeno | Cada servicio verifica que seas el dueño o participante (403 si no) |
+| Leer chats o acuerdos ajenos | Quien no participa recibe 404 (ni siquiera sabe si existen) y el socket solo emite a la sala de cada participante |
+| Conectarse al WebSocket sin cuenta | El socket exige un token válido de un usuario verificado; si no, rechaza la conexión |
+| Doble reserva del mismo material | Transacción `Serializable`: de dos propuestas simultáneas, una se crea y la otra recibe 409 |
 | Datos maliciosos | Validación **zod** estricta: tipos, longitudes y campos permitidos |
 | Inyección SQL | Prisma usa **consultas parametrizadas** |
 | Fotos peligrosas o enormes | Solo JPEG/PNG/WebP verificados por su firma de bytes, máx. 2 MB y 5 por publicación |
@@ -506,8 +545,11 @@ Se escribe primero la prueba y luego el código que la hace pasar (**TDD**).
 |---|---|---|
 | **1. Base** | Servidor, base de datos completa, datos iniciales, registro con correo real, login y perfil | La app inicia sesión contra el servidor |
 | **2. Materiales y fotos** | Publicar, editar, buscar, filtros, fotos en la nube, guardados, alertas, reportes | Dos usuarios ven las mismas publicaciones |
-| **3. Chat y acuerdos** | Chat en tiempo real, acuerdos, reseñas, reputación, avisos en la app | Dos usuarios chatean y acuerdan entregas |
-| **4. Bots** | Worker y los tres tipos de trabajos | Los estudiantes simulados vuelven a responder |
+| **3. Chat y acuerdos** ✅ | Chat en tiempo real, acuerdos, reseñas, reputación, avisos en la app | Dos usuarios chatean y acuerdan entregas |
+| **4. Bots** ✅ | Worker y los tres tipos de trabajos | Los estudiantes simulados vuelven a responder |
+
+Las etapas 3 y 4 se construyeron juntas: casi todas las publicaciones de la demo son de bots, y sin ellos escribirles
+no habría tenido respuesta.
 | **5. Push y despliegue** | Firebase, preferencias, Render + Neon, APK 2.0 | La app funciona desde cualquier lugar y avisa con la app cerrada |
 
 Cada etapa termina con sus pruebas pasando y la app funcionando de punta a punta.
@@ -583,15 +625,19 @@ Por el token JWT que la app envía en el encabezado `Authorization`. El servidor
 y lee el id del usuario. Si alguien altera el token, la firma no coincide y responde 401.
 
 **¿Qué pasa si dos personas intentan reservar el mismo material a la vez?**
-Solo puede haber **un acuerdo activo** por material. El servidor lo comprueba antes de crearlo y responde 409 al segundo.
+Solo puede haber **un acuerdo activo** por material. Comprobarlo y luego crearlo no basta: dos peticiones podrían
+comprobar al mismo tiempo, ver que no hay ninguno y crear dos. Por eso ambas cosas se hacen dentro de una transacción
+**`Serializable`** de PostgreSQL: si dos transacciones se pisan, la base de datos rechaza una, y el servidor responde
+409 "Ya hay una entrega en curso para este material". Hay una prueba automática que envía las dos propuestas en
+paralelo y comprueba que queda un solo acuerdo.
 
 **¿Por qué WebSockets y no consultar cada pocos segundos?**
 Consultar cada pocos segundos (*polling*) genera muchas peticiones vacías y retrasos. El WebSocket mantiene una
 conexión abierta y el servidor avisa en el momento exacto.
 
 **¿Cómo se evita que alguien lea chats ajenos?**
-Cada servicio verifica que el usuario del token sea comprador o vendedor de esa conversación. Si no lo es, responde 403.
-Además, por WebSocket cada usuario solo recibe los eventos de su propia sala.
+Cada servicio verifica que el usuario del token sea comprador o vendedor de esa conversación. Si no lo es, responde
+404, como si no existiera. Además, por WebSocket cada usuario solo recibe los eventos de su propia sala.
 
 **¿Qué es una migración?**
 Un archivo SQL versionado que cambia la estructura de la base de datos. Prisma las genera desde `schema.prisma`, y en

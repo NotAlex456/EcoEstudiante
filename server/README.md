@@ -70,6 +70,17 @@ Los servicios externos son opcionales: sin ellos el servidor funciona igual en m
 | Correo | `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
 | Fotos | `CLOUDINARY_URL` (en tu panel de Cloudinary: *Settings → API Keys → API environment variable*, con la forma `cloudinary://<key>:<secret>@<cloud>`) | Se guardan en `server/uploads/` y se sirven en `/uploads/…` |
 | Push | `FIREBASE_SERVICE_ACCOUNT` | No se envían notificaciones push (etapa 5) |
+| Estudiantes simulados | `BOTS_ENABLED=true` | Los bots no responden, no confirman entregas ni se interesan en lo que publicas |
+
+### Ver los bots en acción
+
+Con `BOTS_ENABLED=true`, inicia sesión en la app y:
+
+1. Escríbele a María (la calculadora Casio): responde en 3 a 8 segundos.
+2. Propónle una entrega: la confirma en 10 a 20 segundos y el material queda Reservado.
+3. Publica un material: en 30 a 60 segundos un bot te escribe interesado.
+
+Los trabajos pendientes están en la tabla `BotJob` (con `npx prisma studio` puedes verlos).
 
 ## Ver la base de datos
 
