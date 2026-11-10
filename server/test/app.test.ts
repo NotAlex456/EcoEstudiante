@@ -107,5 +107,14 @@ describe('página de estado del servidor', () => {
     expect(res.text).toContain('/api/health')
     expect(res.text).toContain('Ir al panel de administración')
     expect(res.headers['x-frame-options']).toBe('DENY')
+    expect(res.text).toContain('<link rel="icon" href="/favicon.svg"')
+  })
+
+  it('sirve el logo de la app como ícono de pestaña', async () => {
+    const res = await request(makeApp()).get('/favicon.svg')
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('image/svg+xml')
+    expect(res.headers['cache-control']).toContain('max-age=')
+    expect(res.body.toString()).toContain('#176b4b')
   })
 })

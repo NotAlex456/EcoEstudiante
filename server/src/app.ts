@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { Config } from './config'
 import { prisma } from './db'
 import { errorHandler, notFound } from './errors'
-import { statusPage } from './status-page'
+import { APP_ICON_SVG, statusPage } from './status-page'
 import { createImageStorage, type ImageStorage } from './integrations/images'
 import { createMailer, type Mailer } from './integrations/mail'
 import { createPushSender, type PushSender } from './integrations/push'
@@ -59,6 +59,11 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
     res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Cache-Control', 'no-cache')
     res.type('html').send(statusPage())
+  })
+  // Logo de la app como ícono de pestaña (lo usan la página principal y el panel).
+  app.get('/favicon.svg', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    res.type('image/svg+xml').send(APP_ICON_SVG)
   })
 
   app.use('/api/auth', authRoutes({ config, mailer, notifier, realtime }))

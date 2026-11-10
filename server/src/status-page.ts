@@ -5,6 +5,16 @@
 
 const RELEASES_URL = 'https://github.com/NotAlex456/EcoEstudiante/releases/latest'
 
+/** Logo de la app (la hoja sobre verde, el mismo de public/icons/icon.svg): ícono de pestaña en /favicon.svg. */
+export const APP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#176b4b"/>
+  <g fill="none" stroke="#ffffff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" transform="translate(96 96) scale(13.33)">
+    <path d="M20 4C10 4 4 8 4 15c0 3 2 5 5 5 7 0 11-8 11-16Z"/>
+    <path d="M5 19c3-5 7-8 12-11"/>
+  </g>
+</svg>
+`
+
 export function statusPage(): string {
   return `<!doctype html>
 <html lang="es">
@@ -13,6 +23,7 @@ export function statusPage(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex" />
 <title>Servidor de EcoEstudiante</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet" />
 <style>
