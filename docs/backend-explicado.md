@@ -602,7 +602,7 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 | **Firebase** | El push de Android | `FIREBASE_SERVICE_ACCOUNT` (servidor) y `google-services.json` (APK) |
 
 - **Cada despliegue** compila el servidor y, al arrancar, ejecuta `npm run start:prod`: aplica las migraciones
-  pendientes (`prisma migrate deploy`), carga los datos de ejemplo si faltan (el seed es idempotente) y arranca.
+  pendientes (`prisma migrate deploy`), carga los datos de ejemplo que falten, sin pisar lo que cambió con el uso y arranca.
 - **Para actualizar:** basta con subir cambios a la rama conectada en GitHub; Render vuelve a desplegar solo.
 - **Las claves** solo están en el panel de Render y en archivos locales fuera de git (`server/.env`,
   `server/.env.render`, la clave de Firebase y `google-services.json`).

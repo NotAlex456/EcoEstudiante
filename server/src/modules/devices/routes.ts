@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../db'
+import { AppError } from '../../errors'
 import type { Hub } from '../../hub'
 import type { PushSender } from '../../integrations/push'
 import { currentUserId, requireAuth } from '../../middleware/auth'
@@ -36,7 +37,11 @@ export function deviceRoutes(hub: Hub, push: PushSender) {
   /** Para probar con la app cerrada: a los 10 s envía un push a mis celulares, esté o no conectado. */
   router.post('/test', async (req, res) => {
     const userId = currentUserId(req)
-    setTimeout(() => {
+    // Mejor decirlo ahora que prometer un aviso que nunca llegará.
+    if (push.mode === 'off') throw new AppError(503, 'PUSH_OFF', 'Los avisos con la app cerrada no están activos en el servidor.')
+    if (!(await prisma.deviceToken.count({ where: { userId } })))
+      throw new AppError(409, 'NO_DEVICES', 'Este celular aún no está registrado para avisos. Permite las notificaciones y vuelve a intentarlo.')
+    const timer = setTimeout(() => {
       void (async () => {
         try {
           const devices = await prisma.deviceToken.findMany({ where: { userId }, select: { token: true } })
@@ -49,6 +54,7 @@ export function deviceRoutes(hub: Hub, push: PushSender) {
         }
       })()
     }, TEST_DELAY_MS)
+    timer.unref() // no impide apagar el servidor
     res.status(202).json({ ok: true })
   })
 

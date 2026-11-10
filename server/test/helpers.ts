@@ -99,8 +99,11 @@ export function fakePush() {
     sent,
     invalid,
     fail: false,
+    /** Simula un Firebase que nunca responde. */
+    hang: false,
     async send(tokens: string[], message: PushMessage) {
       if (state.fail) throw new Error('Firebase no responde')
+      if (state.hang) await new Promise(() => {})
       sent.push({ tokens, message })
       return { invalidTokens: tokens.filter((t) => invalid.has(t)) }
     },

@@ -1,6 +1,7 @@
 /**
  * Datos iniciales: estudiantes simulados (bots), sus materiales y reseñas.
- * Idempotente: se puede ejecutar varias veces (`npx prisma db seed`).
+ * Solo inserta lo que falta: se ejecuta en cada arranque de producción (Render reinicia al despertar), así que
+ * nunca pisa lo que cambió con el uso (un material reservado o entregado, sus fotos, las contraseñas).
  */
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
@@ -14,8 +15,10 @@ export async function seed(prisma: PrismaClient) {
 
   for (const u of SEED_USERS) {
     const data = { name: u.name, email: u.email, career: u.career, cycle: u.cycle, verified: true, isBot: true }
-    const passwordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10)
-    await prisma.user.upsert({ where: { id: u.id }, update: data, create: { id: u.id, ...data, passwordHash } })
+    const existing = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true } })
+    // Nombre y correo se actualizan (así llegan los cambios de los datos de ejemplo); la contraseña solo al crearlo.
+    if (existing) await prisma.user.update({ where: { id: u.id }, data })
+    else await prisma.user.create({ data: { id: u.id, ...data, passwordHash: await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10) } })
   }
 
   for (const { id, daysAgo, images, ...m } of SEED_MATERIALS) {
@@ -33,18 +36,19 @@ export async function seed(prisma: PrismaClient) {
       description: m.description,
       status: m.status,
     }
-    await prisma.material.upsert({
-      where: { id },
-      update: data,
-      create: { id, ...data, createdAt: new Date(now - daysAgo * DAY) },
-    })
-    await prisma.materialImage.deleteMany({ where: { materialId: id } })
-    await prisma.materialImage.createMany({
-      data: images.map((url, position) => ({ materialId: id, url, publicId: `seed:${id}:${position}`, position })),
+    if (await prisma.material.findUnique({ where: { id }, select: { id: true } })) continue
+    await prisma.material.create({
+      data: {
+        id,
+        ...data,
+        createdAt: new Date(now - daysAgo * DAY),
+        images: { create: images.map((url, position) => ({ url, publicId: `seed:${id}:${position}`, position })) },
+      },
     })
   }
 
-  await prisma.review.deleteMany({ where: { agreementId: null, authorId: null } })
+  // Las reseñas de ejemplo (sin acuerdo ni autor) se cargan una sola vez.
+  if (await prisma.review.count({ where: { agreementId: null, authorId: null } })) return
   await prisma.review.createMany({
     data: Object.entries(SEED_REVIEWS).flatMap(([targetId, reviews]) =>
       reviews.map((r) => ({

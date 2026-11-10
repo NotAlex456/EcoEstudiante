@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BackLink, Button, Icon, Switch } from '../components/ui'
 import { api, ApiError } from '../lib/api'
 import { alertInApp, requestSystemPermission, serverPrefs, systemPermission, testSystemNotification, type SystemPermission } from '../lib/alerts'
+import { registerPush } from '../lib/push'
 import { CATEGORY_LABELS, resetAccessibility, updateSettings, useSettings, type NotificationCategory, type TextSize } from '../lib/settings'
 import { currentUser, toast, updateNotificationPrefs, useStore } from '../lib/store'
 import type { NotificationPrefs } from '../lib/types'
@@ -50,6 +51,8 @@ export function NotificationSettings() {
     if (on && permission !== 'granted') {
       const result = await requestSystemPermission()
       setPermission(result)
+      // Con el permiso recién concedido, registra este celular para recibir push (antes solo pasaba al iniciar sesión).
+      if (result === 'granted') void registerPush()
       if (result === 'denied') toast('Android bloqueó las notificaciones. Actívalas en Ajustes del teléfono › Apps › EcoEstudiante.', 'error')
     }
   }

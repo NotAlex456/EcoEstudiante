@@ -51,6 +51,23 @@ describe('/api/devices', () => {
     expect((await request(app).post('/api/devices').send({ token: 'x', platform: 'android' })).status).toBe(401)
   })
 
+  it('la prueba avisa si este usuario no tiene ningún celular registrado', async () => {
+    const res = await request(app).post('/api/devices/test').set(auth(ana.token))
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatchObject({
+      code: 'NO_DEVICES',
+      message: 'Este celular aún no está registrado para avisos. Permite las notificaciones y vuelve a intentarlo.',
+    })
+  })
+
+  it('la prueba avisa si el servidor no tiene push configurado', async () => {
+    const off = makeApp({}, { push: { mode: 'off', send: async () => ({ invalidTokens: [] }) } })
+    await request(off).post('/api/devices').set(auth(ana.token)).send({ token: 'tok-1', platform: 'android' })
+    const res = await request(off).post('/api/devices/test').set(auth(ana.token))
+    expect(res.status).toBe(503)
+    expect(res.body.error.code).toBe('PUSH_OFF')
+  })
+
   it('el aviso de prueba llega a los 10 s', async () => {
     await register(ana, 'tok-1')
     vi.useFakeTimers({ toFake: ['setTimeout'] })

@@ -111,8 +111,11 @@ describe('notify(): push con la app cerrada', () => {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
     await prisma.user.update({ where: { id: userId }, data: { notificationPrefs: { ...(user.notificationPrefs as object), ...patch } as Prisma.InputJsonObject } })
   }
-  const notifyAt = (hhmm = '12:00', category: 'mensajes' | 'acuerdos' = 'mensajes') =>
-    createNotifier({ realtime, push, now: () => lima(hhmm) }).notify(userId, { category, text: 'Hola', link: '#/chat/1' })
+  const notifyAt = async (hhmm = '12:00', category: 'mensajes' | 'acuerdos' = 'mensajes') => {
+    const notifier = createNotifier({ realtime, push, now: () => lima(hhmm) })
+    await notifier.notify(userId, { category, text: 'Hola', link: '#/chat/1' })
+    await notifier.settle() // el push corre en segundo plano
+  }
 
   it('en línea: emite por socket y no envía push', async () => {
     realtime.online.add(userId)
@@ -152,6 +155,16 @@ describe('notify(): push con la app cerrada', () => {
     push.invalid.add('t1')
     await notifyAt()
     expect((await prisma.deviceToken.findMany({ where: { userId } })).map((d) => d.token)).toEqual(['t2'])
+  })
+
+  it('un Firebase que no responde no demora notify (el push corre en segundo plano)', async () => {
+    push.hang = true
+    const notifier = createNotifier({ realtime, push })
+    const result = await Promise.race([
+      notifier.notify(userId, { category: 'mensajes', text: 'Hola', link: '#/chat/1' }).then(() => 'listo'),
+      new Promise((r) => setTimeout(() => r('colgado'), 1000)),
+    ])
+    expect(result).toBe('listo')
   })
 
   it('si Firebase falla, enviar un mensaje responde 201 igual', async () => {
