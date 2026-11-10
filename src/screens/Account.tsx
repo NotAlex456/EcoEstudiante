@@ -2,8 +2,10 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Field, Icon, Sheet, Stars } from '../components/ui'
 import { CAREERS, COMMUNITY_RULES, CYCLES, SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
-import { currentUser, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
+import { currentUser, getState, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
+import { loadNotifications, loadProfile, useRefresh } from '../lib/sync'
 import { AccessibilitySettings, NotificationSettings } from './Settings'
+import { Select } from '../components/inputs'
 import { canInstall, installApp, useInstallState } from '../pwa'
 
 export function Account({ section }: { section?: string }) {
@@ -16,6 +18,8 @@ export function Account({ section }: { section?: string }) {
   const [editing, setEditing] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const install = useInstallState()
+  // Mi reputación la calcula el servidor (reseñas recibidas).
+  useRefresh(() => loadProfile(me.id), [me.id])
 
   if (section === 'seguridad') return <SafetyGuide />
   if (section === 'notificaciones') return <NotificationSettings />
@@ -121,8 +125,8 @@ function EditProfile({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} noValidate>
         <Field label="Nombre y apellido" error={error}><input value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setError('') }} /></Field>
         <div className="form-grid">
-          <Field label="Carrera"><select value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value })}>{CAREERS.map((c) => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Ciclo"><select value={form.cycle} onChange={(e) => setForm({ ...form, cycle: Number(e.target.value) })}>{CYCLES.map((c) => <option key={c} value={c}>{c}.° ciclo</option>)}</select></Field>
+          <Field label="Carrera"><Select label="Carrera" value={form.career} options={CAREERS.map((c) => ({ value: c, label: c }))} onChange={(career) => setForm({ ...form, career })} /></Field>
+          <Field label="Ciclo"><Select label="Ciclo" value={form.cycle} options={CYCLES.map((c) => ({ value: c, label: `${c}.° ciclo` }))} onChange={(cycle) => setForm({ ...form, cycle })} /></Field>
         </div>
         <Field label="Correo institucional" hint="El correo verificado no se puede cambiar."><input value={me.email} disabled /></Field>
         <Button type="submit" className="full-button" disabled={busy}>Guardar cambios</Button>
@@ -150,11 +154,22 @@ function SafetyGuide() {
   )
 }
 
+function cachedNotifications(userId: string) {
+  return getState().notifications.filter((n) => n.userId === userId)
+}
+
 export function Notifications() {
   const me = useStore(currentUser)!
   const all = useStore((s) => s.notifications)
   const list = all.filter((n) => n.userId === me.id).sort((a, b) => b.at - a.at)
-  const [unreadIds] = useState(() => new Set(list.filter((n) => !n.read).map((n) => n.id)))
+  const [unreadIds, setUnreadIds] = useState(() => new Set(list.filter((n) => !n.read).map((n) => n.id)))
+  // La lista viene del servidor; las que llegan sin leer se resaltan antes de marcarlas leídas.
+  useRefresh(async () => {
+    await loadNotifications()
+    const fresh = cachedNotifications(me.id).filter((n) => !n.read).map((n) => n.id)
+    setUnreadIds((ids) => new Set([...ids, ...fresh]))
+    markNotificationsRead()
+  }, [])
 
   useEffect(() => {
     markNotificationsRead()

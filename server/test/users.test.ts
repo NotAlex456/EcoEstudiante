@@ -100,6 +100,9 @@ describe('usuarios', () => {
     expect(res.body.reviews).toHaveLength(3)
     expect(res.body.reviews[0]).toMatchObject({ authorName: 'Kevin Huamán', stars: 5, materialTitle: 'Calculadora Casio fx-82' })
     expect(res.body.email).toBeUndefined()
+    const ids = res.body.materials.map((m: { id: string; ownerId: string; status: string }) => [m.ownerId, m.status])
+    expect(ids.length).toBeGreaterThan(0)
+    expect(ids.every(([owner, status]: string[]) => owner === 'u-maria' && status === 'Disponible')).toBe(true)
   })
 
   it('un usuario sin reseñas tiene reputación 0', async () => {

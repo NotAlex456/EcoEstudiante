@@ -16,11 +16,23 @@ enum Mode {
   Donacion @map("Donación")
 }
 
-enum Category {
-  Libros
-  Apuntes
-  Calculadoras
-  Separatas
+enum UserRole {
+  student
+  admin
+}
+
+enum CodePurpose {
+  verify
+  reset
+}
+
+enum ModerationAction {
+  hide_material
+  restore_material
+  delete_material
+  block_user
+  unblock_user
+  dismiss_report
 }
 
 enum Condition {
@@ -68,6 +80,12 @@ model User {
   verified          Boolean  @default(false)
   isBot             Boolean  @default(false)
   notificationPrefs Json     @default("{\"push\":true,\"quietNight\":false,\"categories\":{\"mensajes\":true,\"acuerdos\":true,\"busquedas\":true,\"cuenta\":true}}")
+  /// student o admin (se asigna según ADMIN_EMAILS al ingresar).
+  role              UserRole @default(student)
+  /// Sube al cambiar la contraseña o al bloquear: invalida todas las sesiones anteriores.
+  tokenVersion      Int      @default(0)
+  /// Cuenta suspendida por un administrador.
+  blockedAt         DateTime?
   createdAt         DateTime @default(now())
 
   emailCodes        EmailCode[]
@@ -84,6 +102,8 @@ model User {
   reviewsReceived   Review[]       @relation("ReviewTarget")
   notifications     Notification[]
   deviceTokens      DeviceToken[]
+  uploads           Upload[]
+  moderationLogs    ModerationLog[]
 }
 
 /// Código de verificación de correo (solo se guarda su hash).
@@ -93,6 +113,8 @@ model EmailCode {
   codeHash  String
   expiresAt DateTime
   attempts  Int      @default(0)
+  /// verify (registro) o reset (recuperar contraseña): un código no sirve para lo otro.
+  purpose   CodePurpose @default(verify)
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -107,13 +129,16 @@ model Material {
   course      String
   career      String
   cycle       Int
-  category    Category
+  /// Texto libre normalizado (normalizeCategory).
+  category    String
   mode        Mode
   price       Int            @default(0)
   exchangeFor String?
   condition   Condition
   description String
   status      MaterialStatus @default(Disponible)
+  /// Ocultado por un administrador: el dueño no puede reactivarlo ni editarlo.
+  moderatedAt DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -126,6 +151,7 @@ model Material {
 
   @@index([status, createdAt])
   @@index([ownerId])
+  @@index([category])
 }
 
 model MaterialImage {
@@ -171,9 +197,26 @@ model Report {
   reason     String
   detail     String
   createdAt  DateTime @default(now())
+  /// Resuelto por un administrador: hidden (se ocultó la publicación) o dismissed (se descartó).
+  resolvedAt DateTime?
+  resolution String?
 
   material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Registro de cada acción de moderación (quién, qué, cuándo y por qué).
+model ModerationLog {
+  id        String           @id @default(cuid())
+  adminId   String
+  action    ModerationAction
+  targetId  String
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }
 
 /// Chat entre el comprador y el vendedor de un material.
@@ -277,6 +320,17 @@ model DeviceToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Foto subida con POST /uploads: registra quién la subió, para que nadie use (ni borre) fotos ajenas.
+model Upload {
+  url        String   @id
+  uploaderId String
+  createdAt  DateTime @default(now())
+
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([uploaderId])
 }
 
 /// Acción programada de un estudiante simulado.

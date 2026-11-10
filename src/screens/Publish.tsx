@@ -1,10 +1,12 @@
-import { FormEvent, useRef, useState } from 'react'
+import { FormEvent, useMemo, useRef, useState } from 'react'
+import { normalizeCategory } from '../../shared/text'
+import { Autocomplete, Select } from '../components/inputs'
 import { BackLink, Button, Field, Icon, ModeTag } from '../components/ui'
-import { CAREERS, CATEGORIES, CONDITIONS, COURSES, CYCLES, MODES } from '../lib/data'
+import { CAREERS, CONDITIONS, CYCLES, MODES, rankedValues, SEED_CATEGORY_LIST } from '../lib/data'
 import { compressImage } from '../lib/images'
 import { navigate } from '../lib/router'
 import { currentUser, materialById, MaterialInput, publishMaterial, toast, updateMaterial, useStore } from '../lib/store'
-import type { Category, Condition, Mode } from '../lib/types'
+import type { Condition, Mode } from '../lib/types'
 
 const MAX_PHOTOS = 3
 
@@ -15,13 +17,21 @@ export function Publish({ editId }: { editId?: string }) {
   const [done, setDone] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busyPhotos, setBusyPhotos] = useState(false)
+  const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState<MaterialInput>(() =>
     editing
       ? { title: editing.title, course: editing.course, career: editing.career, cycle: editing.cycle, category: editing.category, mode: editing.mode, price: editing.price, exchangeFor: editing.exchangeFor, condition: editing.condition, description: editing.description, images: editing.images }
-      : { title: '', course: COURSES[me.career]?.[0] ?? '', career: me.career, cycle: me.cycle, category: 'Libros', mode: 'Venta', price: 0, exchangeFor: '', condition: 'Buen estado', description: '', images: [] },
+      : { title: '', course: '', career: me.career, cycle: me.cycle, category: '', mode: 'Venta', price: 0, exchangeFor: '', condition: 'Buen estado', description: '', images: [] },
   )
   const [accepted, setAccepted] = useState(Boolean(editing))
+  // Sugerencias: lo que otros ya escribieron (más usado primero) + las categorías de ejemplo.
+  const allMaterials = useStore((s) => s.materials)
+  const categorySuggestions = useMemo(() => {
+    const used = rankedValues(allMaterials, (m) => m.category).map((c) => c.name)
+    return [...used, ...SEED_CATEGORY_LIST.filter((c) => !used.includes(c))]
+  }, [allMaterials])
+  const courseSuggestions = useMemo(() => rankedValues(allMaterials, (m) => m.course).map((c) => c.name), [allMaterials])
 
   if (editId && (!editing || editing.ownerId !== me.id)) {
     return <section className="publish-page page-enter"><BackLink label="Volver" fallback="#/actividad/publicaciones" /><p>No puedes editar esta publicación.</p></section>
@@ -36,7 +46,8 @@ export function Publish({ editId }: { editId?: string }) {
     const next: Record<string, string> = {}
     if (current === 1) {
       if (form.title.trim().length < 5) next.title = 'Escribe un título de al menos 5 caracteres.'
-      if (!form.course.trim()) next.course = 'Indica el curso.'
+      if (form.course.trim().length < 2) next.course = 'Indica el curso (al menos 2 caracteres).'
+      if (normalizeCategory(form.category).length < 2) next.category = 'Indica la categoría (por ejemplo: Libros, Uniformes, Material de laboratorio).'
       if (form.mode === 'Venta' && !(form.price > 0)) next.price = 'Indica un precio mayor a S/ 0.'
       if (form.mode === 'Venta' && form.price > 500) next.price = 'El precio máximo es S/ 500.'
     }
@@ -68,9 +79,9 @@ export function Publish({ editId }: { editId?: string }) {
     }
   }
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!validate(step)) return
+    if (saving || !validate(step)) return
     if (step < 3) {
       setStep(step + 1)
       window.scrollTo({ top: 0 })
@@ -83,12 +94,18 @@ export function Publish({ editId }: { editId?: string }) {
       price: form.mode === 'Venta' ? form.price : 0,
       exchangeFor: form.mode === 'Intercambio' ? form.exchangeFor?.trim() || undefined : undefined,
     }
+    // Si el servidor falla, el error ya se mostró y el formulario conserva lo escrito.
+    setSaving(true)
     if (editing) {
-      updateMaterial(editing.id, data)
+      const ok = await updateMaterial(editing.id, data)
+      setSaving(false)
+      if (!ok) return
       toast('Publicación actualizada')
       navigate(`#/material/${editing.id}`, { replace: true })
     } else {
-      setDone(publishMaterial(data))
+      const id = await publishMaterial(data)
+      setSaving(false)
+      if (id) setDone(id)
     }
   }
 
@@ -106,8 +123,6 @@ export function Publish({ editId }: { editId?: string }) {
       </section>
     )
   }
-
-  const courses = COURSES[form.career] ?? []
 
   return (
     <section className="publish-page page-enter">
@@ -132,20 +147,19 @@ export function Publish({ editId }: { editId?: string }) {
             <input value={form.title} maxLength={70} onChange={(e) => set('title', e.target.value)} placeholder="Ej.: Calculadora científica Casio" />
           </Field>
           <div className="form-grid">
-            <Field label="Categoría">
-              <select value={form.category} onChange={(e) => set('category', e.target.value as Category)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+            <Field label="Categoría" error={errors.category} hint="Escribe lo que es: libro, uniforme, kit de laboratorio…">
+              <Autocomplete value={form.category} maxLength={40} suggestions={categorySuggestions} onChange={(v) => set('category', v)} placeholder="Ej.: Libros" />
             </Field>
             <Field label="Carrera">
-              <select value={form.career} onChange={(e) => { set('career', e.target.value); set('course', COURSES[e.target.value]?.[0] ?? '') }}>{CAREERS.map((c) => <option key={c}>{c}</option>)}</select>
+              <Select label="Carrera" value={form.career} options={CAREERS.map((c) => ({ value: c, label: c }))} onChange={(v) => set('career', v)} />
             </Field>
           </div>
           <div className="form-grid">
             <Field label="Curso" error={errors.course}>
-              <input list="course-options" value={form.course} onChange={(e) => set('course', e.target.value)} placeholder="Elige o escribe el curso" />
-              <datalist id="course-options">{courses.map((c) => <option key={c} value={c} />)}</datalist>
+              <Autocomplete value={form.course} maxLength={80} suggestions={courseSuggestions} onChange={(v) => set('course', v)} placeholder="Escribe el curso" />
             </Field>
             <Field label="Ciclo del curso">
-              <select value={form.cycle} onChange={(e) => set('cycle', Number(e.target.value))}>{CYCLES.map((c) => <option key={c} value={c}>{c}.° ciclo</option>)}</select>
+              <Select label="Ciclo del curso" value={form.cycle} options={CYCLES.map((c) => ({ value: c, label: `${c}.° ciclo` }))} onChange={(v) => set('cycle', v)} />
             </Field>
           </div>
           <Field label="¿Qué quieres hacer?">
@@ -221,7 +235,7 @@ export function Publish({ editId }: { editId?: string }) {
 
         <div className="form-actions">
           {step > 1 && <Button variant="secondary" onClick={() => setStep(step - 1)}>Volver</Button>}
-          <Button type="submit" disabled={step === 3 && !accepted}>{step === 3 ? (editing ? 'Guardar cambios' : 'Publicar material') : 'Continuar'}</Button>
+          <Button type="submit" disabled={saving || (step === 3 && !accepted)}>{step === 3 ? (saving ? (editing ? 'Guardando…' : 'Publicando…') : editing ? 'Guardar cambios' : 'Publicar material') : 'Continuar'}</Button>
         </div>
       </form>
     </section>

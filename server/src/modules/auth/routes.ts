@@ -3,13 +3,15 @@ import { rateLimit } from 'express-rate-limit'
 import type { Config } from '../../config'
 import { AppError } from '../../errors'
 import type { Mailer } from '../../integrations/mail'
+import type { Notifier } from '../../notify/notify'
+import type { Realtime } from '../../realtime/socket'
 import { currentUserId, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
 import { getMe } from '../users/service'
-import { loginSchema, registerSchema, resendSchema, verifySchema } from './schemas'
+import { forgotSchema, loginSchema, registerSchema, resendSchema, resetSchema, verifySchema } from './schemas'
 import * as auth from './service'
 
-export function authRoutes(ctx: { config: Config; mailer: Mailer }) {
+export function authRoutes(ctx: { config: Config; mailer: Mailer; notifier: Notifier; realtime?: Realtime }) {
   const router = Router()
 
   const limited = rateLimit({
@@ -34,6 +36,14 @@ export function authRoutes(ctx: { config: Config; mailer: Mailer }) {
 
   router.post('/login', limited, body(loginSchema), async (req, res) => {
     res.json(await auth.login(req.body, ctx))
+  })
+
+  router.post('/forgot', limited, body(forgotSchema), async (req, res) => {
+    res.json(await auth.forgotPassword(req.body.email, ctx))
+  })
+
+  router.post('/reset', limited, body(resetSchema), async (req, res) => {
+    res.json(await auth.resetPassword(req.body, ctx))
   })
 
   router.get('/me', requireAuth(ctx.config), async (req, res) => {

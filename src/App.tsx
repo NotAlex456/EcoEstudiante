@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { App as NativeApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
-import { setUnauthorizedHandler, waitForServer } from './lib/api'
+import { getToken, setUnauthorizedHandler, waitForServer } from './lib/api'
+import { syncAll } from './lib/sync'
 import { startAlerts } from './lib/alerts'
+import { registerPush } from './lib/push'
+import { connectSocket, disconnectSocket } from './lib/socket'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
-import { currentUser, logout, processScheduled, restoreSession, unreadCount, useStore } from './lib/store'
+import { currentUser, logout, restoreSession, unreadCount, useStore } from './lib/store'
 import { Account, Notifications } from './screens/Account'
 import { Activity } from './screens/Activity'
 import { AgreementDetail, Schedule, Scheduled } from './screens/Agreement'
@@ -81,10 +86,36 @@ function Topbar() {
   )
 }
 
+/**
+ * Publica la altura real de la barra inferior (--mobile-nav-h) para que los botones fijos queden justo encima,
+ * en cualquier celular, y marca <html class="keyboard-open"> mientras el teclado está abierto.
+ */
+function useMobileNavLayout(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const nav = ref.current
+    const root = document.documentElement
+    if (!nav) return
+    const measure = () => root.style.setProperty('--mobile-nav-h', `${nav.offsetHeight}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(nav)
+    const viewport = window.visualViewport
+    const onViewport = () => root.classList.toggle('keyboard-open', !!viewport && window.innerHeight - viewport.height > 150)
+    viewport?.addEventListener('resize', onViewport)
+    return () => {
+      observer.disconnect()
+      viewport?.removeEventListener('resize', onViewport)
+      root.classList.remove('keyboard-open')
+    }
+  }, [ref])
+}
+
 function MobileNav({ active }: { active: string }) {
   const { activity } = useBadges()
+  const ref = useRef<HTMLElement>(null)
+  useMobileNavLayout(ref)
   return (
-    <nav className="mobile-nav" aria-label="Navegación principal">
+    <nav ref={ref} className="mobile-nav" aria-label="Navegación principal">
       {navItems.map((item) => (
         <a key={item.id} href={item.hash} className={active === item.id ? 'is-active' : ''} aria-current={active === item.id ? 'page' : undefined}>
           <span className="mobile-nav__icon">
@@ -162,16 +193,27 @@ export default function App() {
     })
   }, [])
 
-  // Simulated replies and confirmations from other students.
-  useEffect(() => {
-    processScheduled()
-    const timer = setInterval(() => processScheduled(), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
   useEffect(() => {
     if (me) startAlerts()
   }, [me])
+
+  // Al abrir la app o iniciar sesión: traer todo del servidor y escuchar los cambios en vivo.
+  useEffect(() => {
+    const token = getToken()
+    if (boot !== 'ready' || !me?.id || !token) return
+    void syncAll()
+    connectSocket(token)
+    void registerPush()
+    // En Android, al salir de la app se cierra la conexión en vivo: así el servidor sabe que debe mandar
+    // push. Al volver, se reconecta (y la conexión vuelve a sincronizar todo).
+    const appState = Capacitor.isNativePlatform()
+      ? NativeApp.addListener('appStateChange', ({ isActive }) => (isActive ? connectSocket(token) : disconnectSocket()))
+      : null
+    return () => {
+      disconnectSocket()
+      void appState?.then((handle) => handle.remove())
+    }
+  }, [boot, me?.id])
 
   // In-app links go through the router so the back button stays inside the app.
   useEffect(() => {

@@ -1,10 +1,12 @@
 import { FormEvent, useState } from 'react'
 import { BackLink, Button, EmptyState, Field, Icon, MaterialSummary, Stars } from '../components/ui'
+import { Select } from '../components/inputs'
 import { SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
 import {
-  cancelAgreement, confirmReception, currentUser, formatDate, formatTime, materialById, openConversation, proposeAgreement, rateAgreement, toISODate, userById, useStore,
+  cancelAgreement, confirmAgreement, getState, confirmReception, currentUser, formatDate, formatTime, materialById, openConversation, proposeAgreement, rateAgreement, toISODate, userById, useStore,
 } from '../lib/store'
+import { loadAgreements, loadConversations, useRefresh } from '../lib/sync'
 import type { AgreementStatus } from '../lib/types'
 
 export function Schedule({ materialId }: { materialId: string }) {
@@ -17,6 +19,7 @@ export function Schedule({ materialId }: { materialId: string }) {
     return { place: SAFE_POINTS[0].name, date: toISODate(next), time: '12:30', note: '' }
   })
   const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
 
   if (!material || !owner) return <Missing />
   if (material.status !== 'Disponible') {
@@ -35,8 +38,12 @@ export function Schedule({ materialId }: { materialId: string }) {
     if (Number.isNaN(when.getTime()) || when.getTime() < Date.now()) return setError('Elige una fecha y hora que todavía no hayan pasado.')
     if (h < 7 || h >= 21) return setError('Para tu seguridad, elige un horario de clases (7:00 a. m. a 9:00 p. m.).')
     if (when.getDay() === 0) return setError('El campus no atiende los domingos. Elige otro día.')
-    const id = proposeAgreement({ materialId, ...form })
-    navigate(`#/acuerdo/${id}/listo`, { replace: true })
+    if (sending) return
+    setSending(true)
+    proposeAgreement({ materialId, ...form }).then((id) => {
+      setSending(false)
+      if (id) navigate(`#/acuerdo/${id}/listo`, { replace: true })
+    })
   }
 
   const point = SAFE_POINTS.find((p) => p.name === form.place)
@@ -52,9 +59,7 @@ export function Schedule({ materialId }: { materialId: string }) {
         <form className="form-card" onSubmit={submit} noValidate>
           <MaterialSummary material={material} />
           <Field label="Punto seguro del campus" hint={point?.detail}>
-            <select value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })}>
-              {SAFE_POINTS.map((p) => <option key={p.name}>{p.name}</option>)}
-            </select>
+            <Select label="Punto seguro del campus" value={form.place} options={SAFE_POINTS.map((p) => ({ value: p.name, label: p.name }))} onChange={(place) => setForm({ ...form, place })} />
           </Field>
           <div className="form-grid">
             <Field label="Día"><input type="date" min={toISODate(new Date())} value={form.date} onChange={(e) => { setForm({ ...form, date: e.target.value }); setError('') }} /></Field>
@@ -65,7 +70,7 @@ export function Schedule({ materialId }: { materialId: string }) {
           </Field>
           {error && <p className="field__error" role="alert">{error}</p>}
           <div className="safety-note"><Icon name="shield" /><p><strong>Entrega segura</strong><span>Elige una zona visible y concurrida, de preferencia en horario de clases. Revisa el material antes de pagar.</span></p></div>
-          <Button type="submit" className="full-button">Enviar propuesta</Button>
+          <Button type="submit" className="full-button" disabled={sending}>{sending ? 'Enviando…' : 'Enviar propuesta'}</Button>
         </form>
         <aside className="schedule-aside">
           <span>¿Qué sucederá después?</span>
@@ -121,10 +126,42 @@ export function AgreementDetail({ id }: { id: string }) {
   const [stars, setStars] = useState(5)
   const [comment, setComment] = useState('')
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const conversationId = useStore((s) =>
+    agreement
+      ? s.conversations.find((c) => c.materialId === agreement.materialId && c.participants[0] === agreement.buyerId)?.id
+      : undefined,
+  )
+  const { loading } = useRefresh(loadAgreements, [id])
 
+  if (!agreement && loading) {
+    return (
+      <section className="inner-page page-enter">
+        <BackLink label="Volver" fallback="#/actividad/acuerdos" />
+        <p className="result-count" role="status">Cargando…</p>
+      </section>
+    )
+  }
   if (!agreement || !material || !other) return <Missing />
   const iAmBuyer = agreement.buyerId === me.id
   const stepIndex = STEPS.indexOf(agreement.status)
+
+  /** Cada acción espera al servidor; mientras tanto los botones quedan deshabilitados. */
+  const run = async (action: () => Promise<boolean>) => {
+    setBusy(true)
+    await action()
+    setBusy(false)
+  }
+
+  const openChat = async () => {
+    let target = conversationId
+    if (!target && iAmBuyer) target = (await openConversation(material.id)) ?? undefined
+    if (!target) {
+      await loadConversations().catch(() => undefined)
+      target = cachedConversationId(agreement.materialId, agreement.buyerId)
+    }
+    if (target) navigate(`#/chat/${target}`)
+  }
 
   return (
     <section className="inner-page page-enter">
@@ -142,7 +179,7 @@ export function AgreementDetail({ id }: { id: string }) {
               {STEPS.map((step, i) => (
                 <li key={step} className={i <= stepIndex ? 'is-done' : ''}>
                   <i>{i <= stepIndex ? <Icon name="check" size={13} /> : i + 1}</i>
-                  <span>{step === 'Pendiente' ? 'Propuesta enviada' : step === 'Confirmado' ? `${iAmBuyer ? other.name.split(' ')[0] : 'Tú'} confirmó` : 'Material recibido'}</span>
+                  <span>{step === 'Pendiente' ? 'Propuesta enviada' : step === 'Confirmado' ? (iAmBuyer ? `${other.name.split(' ')[0]} confirmó` : 'Confirmaste') : 'Material recibido'}</span>
                 </li>
               ))}
             </ol>
@@ -150,8 +187,12 @@ export function AgreementDetail({ id }: { id: string }) {
           <AgreementCard place={agreement.place} date={agreement.date} time={agreement.time} />
           {agreement.note && <p className="agreement-note">Nota: “{agreement.note}”</p>}
 
-          {agreement.status === 'Pendiente' && (
+          {agreement.status === 'Pendiente' && iAmBuyer && (
             <div className="notice notice--soft"><Icon name="clock" /><p><strong>Esperando confirmación</strong><span>{other.name.split(' ')[0]} recibirá tu propuesta y la confirmará en breve.</span></p></div>
+          )}
+
+          {agreement.status === 'Pendiente' && !iAmBuyer && (
+            <div className="notice notice--soft"><Icon name="calendar" /><p><strong>{other.name.split(' ')[0]} te propuso esta entrega</strong><span>Confírmala si el lugar y la hora te quedan bien; si no, coordina otra por el chat.</span></p></div>
           )}
 
           {agreement.status === 'Confirmado' && iAmBuyer && (
@@ -159,13 +200,13 @@ export function AgreementDetail({ id }: { id: string }) {
           )}
 
           {agreement.status === 'Completado' && iAmBuyer && !agreement.rating && (
-            <form className="rating-form" onSubmit={(e) => { e.preventDefault(); rateAgreement(agreement.id, stars, comment) }}>
+            <form className="rating-form" onSubmit={(e) => { e.preventDefault(); if (!busy) void run(() => rateAgreement(agreement.id, stars, comment)) }}>
               <h3>¿Cómo fue tu experiencia con {other.name.split(' ')[0]}?</h3>
               <Stars value={stars} onChange={setStars} size={30} />
               <Field label="Comentario (opcional)">
                 <textarea rows={3} value={comment} maxLength={200} onChange={(e) => setComment(e.target.value)} placeholder="Ej.: puntual y el material estaba tal cual." />
               </Field>
-              <Button type="submit" className="full-button">Enviar valoración</Button>
+              <Button type="submit" className="full-button" disabled={busy}>Enviar valoración</Button>
             </form>
           )}
 
@@ -178,13 +219,14 @@ export function AgreementDetail({ id }: { id: string }) {
           )}
 
           <div className="form-actions form-actions--stack">
-            {agreement.status === 'Confirmado' && iAmBuyer && <Button onClick={() => confirmReception(agreement.id)}><Icon name="check" /> Confirmar recepción</Button>}
-            <Button variant="secondary" onClick={() => navigate(`#/chat/${openConversation(material.id, other.id)}`)}><Icon name="message" /> Abrir chat</Button>
+            {agreement.status === 'Pendiente' && !iAmBuyer && <Button disabled={busy} onClick={() => run(() => confirmAgreement(agreement.id))}><Icon name="check" /> Confirmar entrega</Button>}
+            {agreement.status === 'Confirmado' && iAmBuyer && <Button disabled={busy} onClick={() => run(() => confirmReception(agreement.id))}><Icon name="check" /> Confirmar recepción</Button>}
+            <Button variant="secondary" onClick={() => void openChat()}><Icon name="message" /> Abrir chat</Button>
             {(agreement.status === 'Pendiente' || agreement.status === 'Confirmado') && (
               confirmCancel ? (
                 <div className="confirm-inline">
                   <span>¿Cancelar el acuerdo?</span>
-                  <Button variant="danger" onClick={() => { cancelAgreement(agreement.id); setConfirmCancel(false) }}>Sí, cancelar</Button>
+                  <Button variant="danger" disabled={busy} onClick={() => run(async () => { const ok = await cancelAgreement(agreement.id); setConfirmCancel(false); return ok })}>Sí, cancelar</Button>
                   <Button variant="ghost" onClick={() => setConfirmCancel(false)}>No</Button>
                 </div>
               ) : (
@@ -204,6 +246,11 @@ export function AgreementDetail({ id }: { id: string }) {
       </div>
     </section>
   )
+}
+
+/** El chat del acuerdo según la caché actual (fuera de React, tras recargar conversaciones). */
+function cachedConversationId(materialId: string, buyerId: string) {
+  return getState().conversations.find((c) => c.materialId === materialId && c.participants[0] === buyerId)?.id
 }
 
 function Missing() {

@@ -1,10 +1,8 @@
 import { useMemo } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Icon, MaterialCard, Stars } from '../components/ui'
-import { SEED_REVIEWS } from '../lib/data'
 import { navigate } from '../lib/router'
+import { loadProfile, useRefresh } from '../lib/sync'
 import { currentUser, timeAgo, toggleSaved, userById, userRating, useStore } from '../lib/store'
-
-const DAY = 86_400_000
 
 export function Profile({ id }: { id: string }) {
   const me = useStore(currentUser)!
@@ -15,24 +13,33 @@ export function Profile({ id }: { id: string }) {
   const users = useStore((s) => s.users)
   const materials = useStore((s) => s.materials)
   const saved = useStore((s) => s.saved[me.id]) ?? []
+  const { loading, result: profile } = useRefresh(() => loadProfile(id), [id])
 
   const reviews = useMemo(() => {
-    const real = agreements
-      .filter((a) => a.sellerId === id && a.rating)
-      .map((a) => ({
-        key: a.id,
-        author: users.find((u) => u.id === a.buyerId)?.name ?? 'Estudiante',
-        stars: a.rating!.stars,
-        comment: a.rating!.comment,
-        at: a.rating!.at,
-        material: materials.find((m) => m.id === a.materialId)?.title ?? '',
-      }))
-    const seeded = (SEED_REVIEWS[id] ?? []).map((r, i) => ({ key: `seed-${i}`, ...r, at: Date.now() - r.daysAgo * DAY }))
-    return [...real, ...seeded].sort((a, b) => b.at - a.at)
-  }, [agreements, users, materials, id])
+    // Solo las reseñas del servidor: las valoraciones de acuerdos ya están entre ellas.
+    const remote = (profile?.reviews ?? []).map((r, i) => ({
+      key: `srv-${i}`,
+      author: r.authorName,
+      stars: r.stars,
+      comment: r.comment,
+      at: Date.parse(r.createdAt),
+      material: r.materialTitle,
+    }))
+    return remote.sort((a, b) => b.at - a.at)
+  }, [profile])
 
   const available = materials.filter((m) => m.ownerId === id && m.status === 'Disponible')
-  const delivered = agreements.filter((a) => a.sellerId === id && a.status === 'Completado').length + (user?.baseRatingCount ?? 0)
+  // Entregas valoradas (reseñas del servidor) o, si hay más, las completadas que conoce esta caché.
+  const delivered = Math.max(agreements.filter((a) => a.sellerId === id && a.status === 'Completado').length, user?.rating?.count ?? 0)
+
+  if (!user && loading) {
+    return (
+      <section className="account-page page-enter">
+        <BackLink label="Volver" fallback="#/" />
+        <p className="result-count" role="status">Cargando…</p>
+      </section>
+    )
+  }
   const distribution = [5, 4, 3, 2, 1].map((n) => ({ n, count: reviews.filter((r) => r.stars === n).length }))
 
   if (!user) {

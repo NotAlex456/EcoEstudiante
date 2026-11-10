@@ -1,7 +1,8 @@
 # EcoEstudiante para Android (APK)
 
-La app web se empaqueta con [Capacitor](https://capacitorjs.com/) dentro de un APK que funciona sin internet
-(solo las fotos de ejemplo se descargan de la web). Los datos se guardan en cada celular.
+La app web se empaqueta con [Capacitor](https://capacitorjs.com/) dentro de un APK. Desde la versión 2.0 se
+conecta al servidor publicado en Render (la dirección está en `.env.production`, `VITE_API_URL`), así que los datos ya
+no viven en el celular: el teléfono solo guarda una caché para abrir rápido.
 
 ## Herramientas (ya instaladas en esta PC)
 
@@ -14,6 +15,12 @@ Gradle usa el JDK 21 gracias a `org.gradle.java.home` en `%USERPROFILE%\.gradle\
 de esta PC, fuera del proyecto), y encuentra el SDK por `android/local.properties` (también fuera de git). En otra PC
 basta con tener Android Studio instalado, o crear esos dos archivos con las rutas de esa PC.
 
+## Firebase (avisos push)
+
+El APK necesita `android/app/google-services.json`, del proyecto de Firebase con el paquete `com.ecoestudiante.app`.
+Está **fuera de git**: si generas el APK en otra PC, descárgalo de la consola de Firebase (Configuración del
+proyecto › Tus apps). Sin ese archivo el APK se genera igual, pero no recibe push.
+
 ## Generar un APK nuevo después de cambiar la app
 
 ```bash
@@ -21,6 +28,13 @@ npx pnpm android:apk
 ```
 
 El APK firmado queda en `android/app/build/outputs/apk/release/app-release.apk`.
+
+Si `pnpm android:apk` dice que no reconoce `gradlew.bat`, compila directamente desde PowerShell:
+
+```powershell
+npx pnpm android:sync
+cd android; .\gradlew.bat assembleRelease
+```
 
 Antes de compartir una versión nueva, sube `versionCode` (y `versionName`) en `android/app/build.gradle`;
 si no, Android no la instala encima de la anterior.
@@ -40,6 +54,10 @@ si no, Android no la instala encima de la anterior.
    "Instalar de todas formas".
 
 ## Notificaciones
+
+- Con la app abierta, los avisos llegan por la conexión en vivo y se muestran como ventana emergente.
+- Con la app cerrada o en segundo plano, llegan como **push de Firebase**: el servidor los envía al canal
+  `eco-sonido-vibra`, que la app crea al iniciar.
 
 - El tono está en `public/sounds/notificacion.mp3` (dentro de la app) y en
   `android/app/src/main/res/raw/eco_alerta.mp3` (avisos de Android con la app cerrada). Para cambiarlo,

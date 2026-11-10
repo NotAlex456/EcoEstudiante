@@ -94,8 +94,9 @@ a { color:inherit; }
 .chat__cta { min-height:38px;padding:0 12px;font-size:calc(12px * var(--fs, 1));flex:none; }
 .chat__messages { flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:16px; }
 .chat__messages .notice { margin:0 0 6px; }
-.bubble { position:relative;max-width:78%;align-self:flex-start;padding:10px 12px 20px;border-radius:16px 16px 16px 4px;background:var(--surface);font-size:calc(14px * var(--fs, 1));line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere; }
-.bubble time { position:absolute;right:10px;bottom:4px;color:var(--muted);font-size:calc(9px * var(--fs, 1)); }
+/* La hora ocupa su propia línea dentro de la burbuja: así un mensaje corto ("No") igual la deja entera. */
+.bubble { max-width:78%;align-self:flex-start;padding:9px 12px 6px;border-radius:16px 16px 16px 4px;background:var(--surface);font-size:calc(14px * var(--fs, 1));line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere; }
+.bubble time { display:block;margin-top:2px;text-align:right;white-space:nowrap;color:var(--muted);font-size:calc(10px * var(--fs, 1));line-height:1.2; }
 .bubble--me { align-self:flex-end;border-radius:16px 16px 4px 16px;color:white;background:var(--forest-800); }
 .bubble--me time { color:rgba(255,255,255,.65); }
 .chat__composer { padding:8px 12px max(10px,env(safe-area-inset-bottom));border-top:1px solid var(--line);background:white; }
@@ -358,3 +359,44 @@ html[data-negrita] :is(strong,h1,h2,h3,b) { font-weight:800; }
 .phone-tips strong { color:var(--ink); }
 .status-dot { flex:none;padding:5px 10px;border-radius:999px;font-size:calc(12px * var(--fs, 1));font-weight:700; }
 .status-dot--ok { color:var(--forest-800);background:var(--forest-50); }
+
+/* ---------- selector propio, contraseña con 👁 y sugerencias (etapa 6) ---------- */
+.select { position:relative; }
+.select__trigger { display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:46px;padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:white;color:var(--ink);text-align:left;font-size:calc(14px * var(--fs, 1));cursor:pointer;transition:.2s ease; }
+.select__trigger span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.select__trigger:focus-visible,.select.is-open .select__trigger { border-color:var(--forest-700);box-shadow:0 0 0 3px var(--forest-50);outline:none; }
+.select__trigger:disabled { color:var(--muted);background:var(--surface);cursor:default; }
+.select__chevron { flex:none;color:var(--forest-700);transform:rotate(90deg);transition:transform .2s ease; }
+.select.is-open .select__chevron { transform:rotate(-90deg); }
+.select__dropdown { position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;max-height:300px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:14px;background:white;box-shadow:var(--shadow-lg); }
+.select__list { list-style:none;margin:0;padding:0;display:grid;gap:2px; }
+.select__option { display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:46px;padding:10px 12px;border-radius:10px;color:var(--ink);font-size:calc(14px * var(--fs, 1));cursor:pointer;outline:none; }
+.select__option.is-active { background:var(--forest-50); }
+.select__option[aria-selected="true"] { color:var(--forest-800);font-weight:700;background:var(--forest-100); }
+.select__option:focus-visible { box-shadow:inset 0 0 0 2px var(--forest-700); }
+.select__sheet .select__list { max-height:60vh;overflow-y:auto; }
+.select__sheet .select__option { min-height:52px;font-size:calc(15px * var(--fs, 1)); }
+.filters .select__trigger { min-height:40px;padding:8px 11px; }
+
+.password-input { position:relative;display:block; }
+.password-input input { padding-right:50px !important; }
+.password-input__toggle { position:absolute;top:50%;right:6px;display:grid;place-items:center;width:40px;height:40px;transform:translateY(-50%);border:0;border-radius:9px;color:var(--forest-700);background:transparent;cursor:pointer; }
+.password-input__toggle:hover { background:var(--forest-50); }
+.password-input__toggle:focus-visible { outline:3px solid var(--forest-700);outline-offset:1px; }
+
+.autocomplete { position:relative;display:block; }
+.autocomplete__list { position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;list-style:none;margin:0;padding:6px;border:1px solid var(--line);border-radius:14px;background:white;box-shadow:var(--shadow-lg); }
+.autocomplete__list li { padding:11px 12px;border-radius:10px;font-size:calc(14px * var(--fs, 1));cursor:pointer; }
+.autocomplete__list li:hover,.autocomplete__list li.is-active { background:var(--forest-50);color:var(--forest-800); }
+
+.auth__link { justify-self:end;margin-top:-10px;padding:4px 0;border:0;background:none;color:var(--forest-800);font-weight:700;font-size:calc(13px * var(--fs, 1));cursor:pointer; }
+.status-pill--moderada { color:#7a5a12;background:var(--amber-soft); }
+
+/* Botones fijos pegados a la barra inferior: su altura real la mide App.tsx (--mobile-nav-h). */
+@media (max-width: 760px) {
+  .detail__actions { bottom:var(--mobile-nav-h, calc(70px + env(safe-area-inset-bottom))); }
+  .form-actions { bottom:var(--mobile-nav-h, calc(69px + env(safe-area-inset-bottom))); }
+  /* Con el teclado abierto la barra inferior se oculta y los botones bajan al borde. */
+  html.keyboard-open .mobile-nav { display:none; }
+  html.keyboard-open .detail__actions,html.keyboard-open .form-actions { bottom:0; }
+}

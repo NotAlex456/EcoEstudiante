@@ -1,0 +1,40 @@
+# Blueprint de Render: el servidor de EcoEstudiante (carpeta server/) en el plan gratuito.
+# Render → New → Blueprint → este repositorio. Los valores con sync: false se cargan a mano en el panel.
+services:
+  - type: web
+    name: ecoestudiante-api
+    runtime: node
+    plan: free
+    # Misma región que la base de datos de Neon (AWS US East 2, Ohio).
+    region: ohio
+    rootDir: server
+    # --include=dev: NODE_ENV=production omitiría tsup, que hace falta para compilar.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    # Aplica las migraciones, crea los datos de ejemplo si faltan (es idempotente) y arranca.
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOTS_ENABLED
+        value: "true"
+      - key: CORS_ORIGINS
+        value: https://localhost,capacitor://localhost,http://localhost:5173,http://localhost:8443
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      # Correo por API HTTP: Render gratuito bloquea los puertos SMTP (25, 465 y 587).
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      # Correos no institucionales permitidos y administradores (panel /admin), separados por coma.
+      - key: ALLOWED_EMAILS
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false

@@ -45,11 +45,17 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
   const headers: Record<string, string> = {}
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // FormData (fotos) lleva su propio Content-Type multipart; lo pone el navegador.
+  const isForm = body instanceof FormData
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
 
   let res: Response
   try {
-    res = await fetch(`${API_URL}/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(`${API_URL}/api${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+    })
   } catch {
     throw networkError()
   }
@@ -64,6 +70,9 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
   }
   throw new ApiError(code, message, res.status, details)
 }
+
+/** POST multipart (subida de fotos). */
+export const apiUpload = <T>(path: string, form: FormData) => api<T>('POST', path, form)
 
 /**
  * Espera a que el servidor responda /health. Si tarda más de 1,5 s llama a onSlow

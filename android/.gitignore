@@ -62,7 +62,8 @@ captures/
 .cxx/
 
 # Google Services (e.g. APIs or Firebase)
-# google-services.json
+# google-services.json (Firebase): fuera de git; cada quien descarga el suyo desde la consola de Firebase
+app/google-services.json
 
 # Freeline
 freeline.py

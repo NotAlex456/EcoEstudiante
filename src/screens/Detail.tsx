@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Field, Icon, MaterialCard, ModeTag, Sheet } from '../components/ui'
 import { REPORT_REASONS } from '../lib/data'
 import { navigate } from '../lib/router'
+import { loadMaterial, useRefresh } from '../lib/sync'
 import {
   currentUser, materialById, openConversation, priceLabel, reportMaterial, setMaterialStatus, timeAgo, toggleSaved, userById, userRating, useStore,
 } from '../lib/store'
@@ -17,12 +18,23 @@ export function Detail({ id }: { id: string }) {
   const materials = useStore((s) => s.materials)
   const [photo, setPhoto] = useState(0)
   const [reporting, setReporting] = useState(false)
+  const [contacting, setContacting] = useState(false)
+  const { loading } = useRefresh(() => loadMaterial(id), [id])
 
   const myAgreement = agreements.find((a) => a.materialId === id && a.buyerId === me.id && (a.status === 'Pendiente' || a.status === 'Confirmado'))
   const similar = useMemo(
     () => (material ? materials.filter((m) => m.id !== material.id && m.status === 'Disponible' && m.ownerId !== me.id && (m.course === material.course || m.category === material.category)).slice(0, 3) : []),
     [materials, material, me.id],
   )
+
+  if ((!material || !owner) && loading) {
+    return (
+      <section className="detail page-enter">
+        <BackLink label="Volver" fallback="#/" />
+        <p className="result-count" role="status">Cargando…</p>
+      </section>
+    )
+  }
 
   if (!material || !owner) {
     return (
@@ -36,7 +48,13 @@ export function Detail({ id }: { id: string }) {
   const mine = material.ownerId === me.id
   const unavailable = material.status !== 'Disponible' && !myAgreement
 
-  const contact = () => navigate(`#/chat/${openConversation(material.id)}`)
+  const contact = async () => {
+    if (contacting) return
+    setContacting(true)
+    const conversationId = await openConversation(material.id)
+    setContacting(false)
+    if (conversationId) navigate(`#/chat/${conversationId}`)
+  }
 
   return (
     <section className="detail page-enter">
@@ -87,13 +105,13 @@ export function Detail({ id }: { id: string }) {
           ) : myAgreement ? (
             <div className="detail__actions">
               <Button onClick={() => navigate(`#/acuerdo/${myAgreement.id}`)}><Icon name="calendar" /> Ver mi acuerdo</Button>
-              <Button variant="secondary" onClick={contact}><Icon name="message" /> Mensajes</Button>
+              <Button variant="secondary" disabled={contacting} onClick={contact}><Icon name="message" /> Mensajes</Button>
             </div>
           ) : unavailable ? (
             <div className="notice notice--warn"><Icon name="info" /><p><strong>Este material ya está {material.status.toLowerCase()}.</strong><span>Mira opciones similares abajo o guárdalo por si se libera.</span></p></div>
           ) : (
             <div className="detail__actions">
-              <Button onClick={contact}><Icon name="message" /> Contactar y acordar</Button>
+              <Button disabled={contacting} onClick={contact}><Icon name="message" /> Contactar y acordar</Button>
               <Button variant="secondary" onClick={() => toggleSaved(material.id)}><Icon name="heart" className={saved.includes(material.id) ? 'icon--filled' : ''} /> {saved.includes(material.id) ? 'Guardado' : 'Guardar'}</Button>
             </div>
           )}
@@ -114,7 +132,11 @@ export function Detail({ id }: { id: string }) {
         </div>
       )}
 
-      {reporting && <ReportSheet onClose={() => setReporting(false)} onSubmit={(reason, detail) => { reportMaterial(material.id, reason, detail); setReporting(false); navigate('#/', { replace: true }) }} />}
+      {reporting && <ReportSheet onClose={() => setReporting(false)} onSubmit={async (reason, detail) => {
+        if (!(await reportMaterial(material.id, reason, detail))) return
+        setReporting(false)
+        navigate('#/', { replace: true })
+      }} />}
     </section>
   )
 }

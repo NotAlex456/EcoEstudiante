@@ -67,9 +67,48 @@ Los servicios externos son opcionales: sin ellos el servidor funciona igual en m
 
 | Servicio | Variables | Sin configurar |
 |---|---|---|
-| Correo | `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
-| Fotos | `CLOUDINARY_URL` | Se guardan en `server/uploads/` (etapa 2) |
+| Correo | `BREVO_API_KEY` (recomendado en Render), `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (solo local) | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
+| Fotos | `CLOUDINARY_URL` (en tu panel de Cloudinary: *Settings → API Keys → API environment variable*, con la forma `cloudinary://<key>:<secret>@<cloud>`) | Se guardan en `server/uploads/` y se sirven en `/uploads/…` |
 | Push | `FIREBASE_SERVICE_ACCOUNT` | No se envían notificaciones push (etapa 5) |
+| Correos de confianza | `ALLOWED_EMAILS` (separados por coma) | Solo pueden registrarse correos `@upsjb.edu.pe` |
+| Administradores | `ADMIN_EMAILS` (separados por coma) | Nadie puede entrar al panel `/admin` |
+| Estudiantes simulados | `BOTS_ENABLED=true` | Los bots no responden, no confirman entregas ni se interesan en lo que publicas |
+
+## Despliegue en Render (gratis)
+
+El servidor está publicado en https://ecoestudiante-api.onrender.com. Para desplegarlo de nuevo, o en otra cuenta:
+
+1. Crea los servicios y anota sus claves en `server/.env.render`, que está fuera de git:
+   - **Neon:** base de datos. Usa la conexión **directa**, sin `-pooler`.
+   - **Cloudinary:** fotos.
+   - **Brevo:** correo. Verifica el remitente y desactiva el bloqueo de IP para claves API, porque Render no tiene IP fija.
+   - **Firebase:** push. La cuenta de servicio va en base64.
+2. En Render, ve a **New › Blueprint**, elige este repositorio y la rama. Render lee `render.yaml` (raíz del repositorio)
+   y crea `ecoestudiante-api` en Ohio.
+3. Carga las variables marcadas como secretas: `DATABASE_URL`, `JWT_SECRET`, `CLOUDINARY_URL`, `BREVO_API_KEY`,
+   `MAIL_FROM` (sin comillas) y `FIREBASE_SERVICE_ACCOUNT`.
+4. El primer despliegue aplica las migraciones y carga los datos de ejemplo (`npm run start:prod`).
+   Compruébalo en `https://ecoestudiante-api.onrender.com/api/health`.
+
+> Render gratuito **bloquea los puertos SMTP**: en producción el correo debe ir por `BREVO_API_KEY` (o `RESEND_API_KEY`
+> con dominio propio). Gmail SMTP solo sirve en local.
+
+### Panel de administración
+
+`npm run build` compila el servidor y el panel (`admin-web/` → `dist-admin/`), que se abre en
+`http://localhost:3000/admin`. Para trabajar en el panel con recarga al instante: `npm run dev` en una terminal y
+`npm run dev:admin` en otra (abre `http://localhost:5174/admin/`). Se entra con una cuenta cuyo correo esté en
+`ADMIN_EMAILS`.
+
+### Ver los bots en acción
+
+Con `BOTS_ENABLED=true`, inicia sesión en la app y:
+
+1. Escríbele a María (la calculadora Casio): responde en 3 a 8 segundos.
+2. Propónle una entrega: la confirma en 10 a 20 segundos y el material queda Reservado.
+3. Publica un material: en 30 a 60 segundos un bot te escribe interesado.
+
+Los trabajos pendientes están en la tabla `BotJob` (con `npx prisma studio` puedes verlos).
 
 ## Ver la base de datos
 
@@ -82,7 +121,7 @@ Abre una página en el navegador para ver y editar las tablas.
 ## Estructura
 
 ```
-prisma/schema.prisma    diseño de la base de datos (14 tablas)
+prisma/schema.prisma    diseño de la base de datos (15 tablas)
 prisma/migrations/      SQL que crea las tablas
 prisma/seed.ts          datos de ejemplo
 src/app.ts              arma Express: CORS, JSON, rutas y errores

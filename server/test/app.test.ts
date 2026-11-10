@@ -44,3 +44,48 @@ describe('app', () => {
     expect(c.mail.smtp).toBeUndefined()
   })
 })
+
+describe('configuración de producción', () => {
+  const base = { DATABASE_URL: 'postgresql://x', JWT_SECRET: 'x'.repeat(32) }
+  it('avisa si en producción faltan Cloudinary o el correo', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    loadConfig({ ...base, NODE_ENV: 'production' })
+    const text = warn.mock.calls.flat().join(' ')
+    expect(text).toContain('CLOUDINARY_URL')
+    expect(text).toContain('correo')
+    warn.mockRestore()
+  })
+  it('en desarrollo no avisa', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    loadConfig(base)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+})
+
+describe('panel de administración (/admin)', () => {
+  it('sirve la página del panel, con fallback a index.html y sin permitir iframes', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eco-admin-'))
+    fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>Panel EcoEstudiante</title>')
+    const app = makeApp({ adminDir: dir })
+    const home = await request(app).get('/admin/')
+    expect(home.status).toBe(200)
+    expect(home.text).toContain('Panel EcoEstudiante')
+    expect(home.headers['x-frame-options']).toBe('DENY')
+    const deep = await request(app).get('/admin/usuarios')
+    expect(deep.status).toBe(200)
+    expect(deep.text).toContain('Panel EcoEstudiante')
+    // Tras un nuevo despliegue la página no debe quedar en caché apuntando a archivos viejos…
+    expect(home.headers['cache-control']).toContain('no-cache')
+    // …y un archivo que ya no existe da 404, no la página (el navegador no ejecutaría HTML como script).
+    expect((await request(app).get('/admin/assets/index-viejo.js')).status).toBe(404)
+  })
+
+  it('sin la carpeta compilada no monta /admin', async () => {
+    const app = makeApp({ adminDir: '/no/existe' })
+    expect((await request(app).get('/admin/')).status).toBe(404)
+  })
+})

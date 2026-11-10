@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** etapa 1 (base) construida: servidor, base de datos completa, registro con verificación de correo, inicio de sesión y perfiles. Las etapas 2 a 5 están pendientes (§10). Este documento se actualiza al terminar cada una.
+> **Estado:** las 5 etapas están construidas y el servidor está publicado en https://ecoestudiante-api.onrender.com. Funciona el registro con correo real, las publicaciones con fotos en la nube, el chat en tiempo real, los acuerdos, las reseñas, los estudiantes simulados y los avisos push con la app cerrada. Se probó en un celular real con el APK 2.0. La etapa 6 agrega recuperación de contraseña, correos permitidos, categorías libres y un panel de administración en https://ecoestudiante-api.onrender.com/admin (§7.7 y §7.8).
 
 ## Índice
 
@@ -64,7 +64,7 @@ flowchart TB
   end
   DB[(PostgreSQL)]
   C[Cloudinary<br/>fotos]
-  M[Resend / Gmail<br/>correos]
+  M[Brevo<br/>correos]
   F[Firebase FCM<br/>push]
 
   A & W -- HTTPS + JSON --> E
@@ -102,7 +102,7 @@ usuarios del proyecto es más que suficiente y mucho más simple de desplegar qu
 | **JWT** | Sesiones | Token firmado que la app envía en cada petición. El servidor no necesita guardar sesiones |
 | **Socket.IO** | Tiempo real | WebSockets con reconexión automática y "salas" por usuario |
 | **Cloudinary** | Almacenar fotos | Plan gratuito. El hosting gratuito borra su disco al reiniciar, así que las fotos no pueden vivir ahí |
-| **Resend / Gmail SMTP** | Enviar correos | Plan gratuito. Gmail sirve de respaldo si Resend no permite el dominio de destino |
+| **Brevo** (API HTTP) | Enviar los códigos de verificación | Plan gratuito (300 correos al día) y envía desde un Gmail verificado sin dominio propio. Se usa una API HTTP porque Render gratuito bloquea el correo por SMTP; en local también sirve Gmail SMTP |
 | **Firebase Cloud Messaging** | Notificaciones push | Es el servicio oficial (y gratuito) para push en Android |
 | **Vitest + Supertest** | Pruebas automáticas | Prueban la API completa con peticiones HTTP reales contra una base de prueba |
 | **embedded-postgres** | PostgreSQL local | Un PostgreSQL real instalado como paquete de npm. No requiere Docker ni instalador |
@@ -193,7 +193,7 @@ erDiagram
     string id PK
     string ownerId FK
     string title
-    enum category
+    string category
     enum mode
     int price
     enum condition
@@ -229,7 +229,7 @@ erDiagram
 `BotJob` (tareas programadas de los bots) no se relaciona con las demás tablas: guarda en un campo JSON los ids que
 necesita.
 
-### 5.2 Las 14 tablas
+### 5.2 Las 16 tablas
 
 | Tabla | Qué guarda |
 |---|---|
@@ -247,10 +247,12 @@ necesita.
 | **Notification** | Historial de avisos de cada usuario |
 | **DeviceToken** | Identificadores de cada celular para enviarle push |
 | **BotJob** | Acciones programadas de los estudiantes simulados |
+| **Upload** | Quién subió cada foto: nadie puede usar ni borrar fotos ajenas |
+| **ModerationLog** | Cada acción de un administrador: quién, qué, cuándo y por qué |
 
 ### 5.3 Decisiones de diseño de la base de datos
 
-- **Enums** para valores fijos (modalidad, categoría, estado): la base rechaza valores inválidos.
+- **Enums** para valores fijos (modalidad, estado, rol): la base rechaza valores inválidos. La **categoría** es texto libre normalizado ("  kit  de LABORATORIO " → "Kit de laboratorio"), para que la app no se limite a libros, apuntes, calculadoras y separatas.
 - **`UNIQUE (materialId, buyerId)` en Conversation**: un comprador tiene un solo chat por material. Lo garantiza la
   base de datos, no solo el código.
 - **`buyerReadAt` y `sellerReadAt`**: como un chat siempre tiene dos participantes, basta una fecha de "última lectura"
@@ -314,7 +316,7 @@ Todas las rutas empiezan con `/api`. 🔒 indica que requieren sesión (token JW
 | | `PATCH /materials/:id/status` 🔒 | Pausar o reactivar |
 | | `DELETE /materials/:id` 🔒 | Eliminar |
 | | `GET /users/me/materials` 🔒 | Mis publicaciones |
-| Fotos | `POST /uploads` 🔒 | Subir hasta 5 fotos de 2 MB |
+| Fotos | `POST /uploads` 🔒 | Subir hasta 5 fotos de 2 MB; devuelve sus URLs |
 | Guardados | `GET/PUT/DELETE /saved…` 🔒 | Materiales guardados |
 | | `GET/POST/DELETE /saved-searches…` 🔒 | Alertas de búsqueda |
 | Chat | `GET /conversations` 🔒 | Mis chats con no leídos |
@@ -383,7 +385,7 @@ sequenceDiagram
 ### 7.2 Publicar un material
 
 1. La app **comprime** las fotos en el celular, como ya hacía.
-2. Las sube con `POST /uploads`. El servidor valida tipo y tamaño, las guarda en Cloudinary y devuelve sus URLs.
+2. Las sube con `POST /uploads`. El servidor comprueba el **tipo real** de cada archivo leyendo sus primeros bytes (no confía en el nombre ni en lo que dice el navegador) y su tamaño. Las guarda en Cloudinary (o en la carpeta `server/uploads/` si no hay Cloudinary) y devuelve sus URLs. Si una sola falla, no se guarda ninguna.
 3. La app envía `POST /materials` con los datos y las URLs.
 4. El servidor valida y guarda el material, y además:
    - avisa a los usuarios con una **búsqueda guardada** que coincida,
@@ -413,14 +415,36 @@ Los mensajes se **envían por HTTP** y el WebSocket solo se usa para **avisar**.
 validación y queda guardada antes de avisar. Si una app pierde la conexión, al reconectarse vuelve a pedir sus chats y
 no pierde nada.
 
+Detalles de lo construido:
+
+- **Una conversación por material y comprador** (`@@unique([materialId, buyerId])`). Pulsar "Contactar" dos veces
+  devuelve la misma.
+- **Conectarse al socket exige el token**: el servidor lo verifica en el *handshake* y comprueba que el usuario exista
+  y esté verificado. Cada socket entra a la sala `user:<id>`, y el servidor solo emite a las salas de los participantes.
+- **Quien no participa recibe 404**, no 403: así ni siquiera puede saber si ese chat existe.
+- **Mensajes paginados** de a 50 (`?before=<fecha>`), y **no leídos** contados por el servidor a partir de la última
+  lectura de cada participante (`buyerReadAt`, `sellerReadAt`).
+- **Reconexión:** si se reinicia el servidor o se corta la red, al volver el socket la app pide de nuevo conversaciones,
+  acuerdos y notificaciones (`syncAll`). Se probó insertando mensajes con el servidor apagado: aparecieron solos al
+  volver.
+
 ### 7.4 Acordar una entrega
 
 1. El comprador propone lugar (uno de los **puntos seguros** del campus), fecha y hora: `POST /agreements`.
-2. El servidor comprueba que el material esté **Disponible**, que no haya otro acuerdo activo y que la fecha no sea pasada.
-3. Se publica en el chat el mensaje "📍 Propuesta de entrega…" y se avisa al vendedor.
-4. El vendedor confirma, y el material pasa a **Reservado**.
+2. El servidor comprueba la fecha con la **hora de Lima**: que no haya pasado, que sea entre 7:00 a. m. y 9:00 p. m. y
+   que no sea domingo. También comprueba que el material esté **Disponible** y que no haya otro acuerdo activo.
+3. Se publica en el chat el mensaje "📍 Propuesta de entrega…" y se avisa al vendedor ("Beto propuso entregar…").
+4. El vendedor pulsa **"Confirmar entrega"**, y el material pasa a **Reservado**. Si el vendedor es un bot, confirma solo.
 5. Tras la entrega, el comprador confirma la recepción, y el material pasa a **Entregado**.
-6. El comprador deja la **reseña**, que actualiza la reputación del vendedor.
+6. El comprador deja la **reseña** (1 a 5 estrellas), que actualiza la reputación del vendedor. Solo una por acuerdo.
+
+Cualquiera de los dos puede **cancelar** mientras esté Pendiente o Confirmado; si el material estaba Reservado, vuelve a
+Disponible. Cada cambio se avisa por socket a ambos (`agreement:updated`) y, si cambia el material, a todos los que
+conversan sobre él (`material:updated`).
+
+Cada transición se hace de forma **atómica**: se actualiza el acuerdo solo si sigue en el estado esperado
+(`UPDATE … WHERE status = 'Pendiente'`). Si dos peticiones llegan a la vez, la segunda no encuentra nada que cambiar y
+responde 409.
 
 ### 7.5 Notificaciones: un solo punto de entrada
 
@@ -442,6 +466,28 @@ flowchart TD
 
 Así el usuario **nunca recibe el mismo aviso dos veces**, y ningún módulo necesita saber si existe el WebSocket o el push.
 
+**¿Cómo sabe el servidor si "tiene la app abierta"?** Por la conexión en vivo (Socket.IO). En Android, la app
+**cierra esa conexión al pasar a segundo plano** y la vuelve a abrir al regresar. Así, "no conectado" significa siempre
+"mandar push", sin ventanas en las que el servidor crea que sigues mirando la pantalla.
+
+**El push, paso a paso:**
+
+1. Al iniciar sesión, la app pide permiso de notificaciones y obtiene de Firebase un **token** que identifica a ese
+   celular. Lo registra con `POST /devices` (tabla `DeviceToken`). Si otra cuenta registra el mismo celular, el token
+   pasa a ella; al cerrar sesión se borra.
+2. Cuando `notify()` decide mandar push, llama a **Firebase Cloud Messaging** con la cuenta de servicio del proyecto
+   y le pide entregar el aviso a todos los tokens del usuario.
+3. Android muestra la notificación aunque la app esté cerrada. Al tocarla, la app abre el `link` del aviso (el chat, el
+   acuerdo…).
+4. Si Firebase dice que un token ya no existe (por ejemplo, porque desinstalaron la app), se borra.
+
+Un fallo de Firebase **nunca rompe** la acción que lo causó: el mensaje se envía igual y el error queda en el registro.
+
+**Preferencias:** push sí o no, horario silencioso (de 22:00 a 06:59, hora de Lima) y categorías se guardan en el
+servidor (`User.notificationPrefs`), porque con la app cerrada solo el servidor puede aplicarlas. Ventana emergente,
+sonido, vibración y volumen siguen en el celular. Las notificaciones que la app carga al abrirse se muestran en la
+lista, sin ventana emergente, para no repetir avisos ya vistos.
+
 ### 7.6 Estudiantes simulados (bots)
 
 - Son usuarios normales marcados con `isBot = true`.
@@ -458,6 +504,48 @@ Lo importante para la sustentación: los bots **usan exactamente los mismos serv
 chat, los avisos y el push funcionan con ellos sin código especial. Y como los trabajos se guardan en la base de datos,
 sobreviven a un reinicio del servidor.
 
+Dos reglas del worker:
+
+- **Cada trabajo se reserva antes de ejecutarse** (se marca `doneAt` con un `UPDATE … WHERE doneAt IS NULL`). Aunque
+  falle o haya dos workers, nunca se ejecuta dos veces.
+- **Si ya no aplica, no hace nada:** si cancelaste el acuerdo antes de que el bot lo confirmara, o pausaste el material
+  antes de que un bot se interesara, el trabajo se marca hecho sin cambiar nada.
+
+Las frases de los bots viven en `shared/bot-replies.ts`, el mismo archivo que antes usaba la app, así que responden
+igual que siempre. Se activan con `BOTS_ENABLED=true`.
+
+### 7.7 Recuperar la contraseña y cerrar sesiones
+
+1. En "Ingresar", **"¿Olvidaste tu contraseña?"** pide el correo (`POST /auth/forgot`). La respuesta es **la misma
+   exista o no la cuenta**, para que nadie pueda averiguar quién está registrado.
+2. Si la cuenta existe, llega un **código de 6 dígitos** por correo (Brevo), que vence en 15 minutos y admite 5
+   intentos. Se guarda en la misma tabla que el código del registro, pero marcado como `reset`: un código de
+   registro no sirve para recuperar ni al revés.
+3. Con el código y la contraseña nueva (`POST /auth/reset`) se guarda el hash nuevo, **se cierran todas las sesiones
+   anteriores** y se inicia una nueva.
+
+**¿Cómo se cierran sesiones con JWT, que no se guardan en el servidor?** Cada usuario tiene un contador
+`tokenVersion` que va dentro del token. En cada petición (y al conectar el socket) el servidor compara la versión
+del token con la de la base: cambiar la contraseña o bloquear la cuenta sube el contador, y todos los tokens
+anteriores dejan de servir al instante.
+
+### 7.8 Moderación y panel de administración
+
+- **Quién es administrador:** los correos de la variable `ADMIN_EMAILS` reciben el rol `admin` al ingresar. Sacarlos
+  de la lista se lo quita, y como el rol se lee de la base en cada petición, pierden el acceso enseguida.
+- **Correos permitidos:** `ALLOWED_EMAILS` deja registrarse a personas de confianza sin correo institucional (por
+  ejemplo, para probar la app). El resto recibe el mismo mensaje de siempre.
+- **El panel** es una página web aparte en https://ecoestudiante-api.onrender.com/admin: una app React pequeña (`server/admin-web/`) que el mismo
+  servidor compila y sirve. Se entra con la cuenta de siempre; si no es administradora, responde "No tienes acceso".
+- **Qué puede hacer** (todo en `/api/admin/*`, y un estudiante recibe 403):
+  - **Resumen:** estudiantes, publicaciones activas, entregas completadas y reportes pendientes.
+  - **Publicaciones:** ocultar (pausa la publicación, cancela sus entregas en curso y avisa al dueño y al
+    comprador), restaurar o eliminar. El dueño ve "Oculta por moderación" y solo puede eliminarla.
+  - **Reportes:** "Ocultar publicación" (resuelve todos sus reportes) o "Descartar".
+  - **Usuarios:** bloquear o desbloquear. Un bloqueado no puede entrar, su sesión y su conexión en vivo se cortan,
+    y sus publicaciones se ocultan mientras dure el bloqueo. No se puede bloquear a otro administrador.
+- **Trazabilidad:** cada acción queda en `ModerationLog` y se ve en el resumen del panel.
+
 ---
 
 ## 8. Seguridad
@@ -465,16 +553,24 @@ sobreviven a un reinicio del servidor.
 | Riesgo | Medida |
 |---|---|
 | Robo de contraseñas | **bcrypt** con *salt*: ni el servidor conoce las contraseñas |
-| Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código |
+| Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código (y los correos de confianza de `ALLOWED_EMAILS`, también verificados) |
+| Contraseña olvidada o filtrada | Recuperación con código por correo; al cambiarla se cierran todas las sesiones (`tokenVersion`) |
+| Usuarios que abusan | Bloqueo desde el panel: corta su sesión y su conexión al instante y oculta sus publicaciones |
+| Panel de administración | Solo cuentas con rol `admin` (403 para el resto, comprobado en cada petición); el panel no se puede incrustar en otra página (`X-Frame-Options: DENY`) |
 | Adivinar el código | 6 dígitos, vence en 15 min, guardado con hash y máx. 5 intentos, reservados de forma atómica para que ni peticiones en paralelo los superen |
 | Re-registrar un correo ajeno sin verificar | La verificación exige el código **y** la contraseña del registro: quien re-registre el correo no puede quedarse con la cuenta |
 | Phishing en el correo de verificación | El nombre se escapa antes de insertarlo en el HTML del correo |
 | Fuerza bruta en el login | **Rate limiting**: 10 intentos por minuto por IP. Mensaje idéntico para "correo no existe" y "contraseña incorrecta" |
 | Suplantar a otro usuario | **JWT firmado**: si se altera, la firma deja de coincidir |
 | Editar o leer lo ajeno | Cada servicio verifica que seas el dueño o participante (403 si no) |
+| Leer chats o acuerdos ajenos | Quien no participa recibe 404 (ni siquiera sabe si existen) y el socket solo emite a la sala de cada participante |
+| Conectarse al WebSocket sin cuenta | El socket exige un token válido de un usuario verificado; si no, rechaza la conexión |
+| Doble reserva del mismo material | Transacción `Serializable`: de dos propuestas simultáneas, una se crea y la otra recibe 409 |
 | Datos maliciosos | Validación **zod** estricta: tipos, longitudes y campos permitidos |
 | Inyección SQL | Prisma usa **consultas parametrizadas** |
-| Fotos peligrosas o enormes | Solo JPEG/PNG/WebP, máx. 2 MB y 5 por publicación |
+| Fotos peligrosas o enormes | Solo JPEG/PNG/WebP verificados por su firma de bytes, máx. 2 MB y 5 por publicación |
+| Usar fotos ajenas en una publicación | El servidor solo acepta URLs de su propio almacenamiento (o las que el material ya tenía) |
+| Ver publicaciones pausadas o eliminadas | Solo su dueño (y, si está eliminada, quienes tenían chat sobre ella); el resto recibe 404, como si no existiera |
 | Filtrar detalles internos | Los errores 500 no exponen nada; el detalle queda en el registro |
 | Claves en el código | Todas las claves van en variables de entorno, nunca en git |
 | Privacidad (Ley N.° 29733) | El correo no aparece en el perfil público; el teléfono nunca se pide |
@@ -503,9 +599,12 @@ Se escribe primero la prueba y luego el código que la hace pasar (**TDD**).
 |---|---|---|
 | **1. Base** | Servidor, base de datos completa, datos iniciales, registro con correo real, login y perfil | La app inicia sesión contra el servidor |
 | **2. Materiales y fotos** | Publicar, editar, buscar, filtros, fotos en la nube, guardados, alertas, reportes | Dos usuarios ven las mismas publicaciones |
-| **3. Chat y acuerdos** | Chat en tiempo real, acuerdos, reseñas, reputación, avisos en la app | Dos usuarios chatean y acuerdan entregas |
-| **4. Bots** | Worker y los tres tipos de trabajos | Los estudiantes simulados vuelven a responder |
-| **5. Push y despliegue** | Firebase, preferencias, Render + Neon, APK 2.0 | La app funciona desde cualquier lugar y avisa con la app cerrada |
+| **3. Chat y acuerdos** ✅ | Chat en tiempo real, acuerdos, reseñas, reputación, avisos en la app | Dos usuarios chatean y acuerdan entregas |
+| **4. Bots** ✅ | Worker y los tres tipos de trabajos | Los estudiantes simulados vuelven a responder |
+
+Las etapas 3 y 4 se construyeron juntas: casi todas las publicaciones de la demo son de bots, y sin ellos escribirles
+no habría tenido respuesta.
+| **5. Push y despliegue** ✅ | Firebase, preferencias, Render + Neon, APK 2.0 | La app funciona desde cualquier lugar y avisa con la app cerrada |
 
 Cada etapa termina con sus pruebas pasando y la app funcionando de punta a punta.
 
@@ -530,11 +629,20 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 
 ### En internet (gratis)
 
-- **Neon**: base de datos PostgreSQL.
-- **Render**: servidor conectado al repositorio de GitHub. En cada despliegue aplica las migraciones pendientes
-  (`prisma migrate deploy`).
-- Las claves se cargan como **variables de entorno** en Render.
-- El **APK 2.0** se compila apuntando a la URL de Render.
+| Servicio | Para qué | Dónde se configura |
+|---|---|---|
+| **Render** | El servidor (https://ecoestudiante-api.onrender.com), en Ohio | `render.yaml` (Blueprint) + variables de entorno en el panel |
+| **Neon** | PostgreSQL 18, en Ohio (AWS US East 2) | `DATABASE_URL` (conexión directa, con `sslmode=require`) |
+| **Cloudinary** | Las fotos de las publicaciones | `CLOUDINARY_URL` |
+| **Brevo** | Los correos con el código de verificación | `BREVO_API_KEY` + `MAIL_FROM` (remitente verificado en Brevo) |
+| **Firebase** | El push de Android | `FIREBASE_SERVICE_ACCOUNT` (servidor) y `google-services.json` (APK) |
+
+- **Cada despliegue** compila el servidor y, al arrancar, ejecuta `npm run start:prod`: aplica las migraciones
+  pendientes (`prisma migrate deploy`), carga los datos de ejemplo que falten, sin pisar lo que cambió con el uso y arranca.
+- **Para actualizar:** basta con subir cambios a la rama conectada en GitHub; Render vuelve a desplegar solo.
+- **Las claves** solo están en el panel de Render y en archivos locales fuera de git (`server/.env`,
+  `server/.env.render`, la clave de Firebase y `google-services.json`).
+- **El APK 2.0** se compila con `VITE_API_URL` apuntando a Render (archivo `.env.production`, que no es secreto).
 
 ---
 
@@ -565,10 +673,25 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 - **Un solo proceso:** para muchos usuarios habría que separar el worker y usar un adaptador de Socket.IO compartido
   (por ejemplo, Redis).
 - **Sin conexión, solo lectura:** publicar o chatear requiere internet.
+- **Correos que pueden ir a spam:** se envían desde un Gmail sin dominio propio, así que Gmail y Outlook no pueden
+  firmarlos (DKIM). Con un dominio propio verificado en Brevo se resolvería.
+- **Sin push en la web:** la versión de navegador (PWA) solo avisa con la página abierta. El push web necesitaría un
+  *service worker* y claves VAPID propias.
+- **Render bloquea el correo SMTP en el plan gratuito:** por eso se usa la API HTTP de Brevo.
+- **Neon gratuito:** 0,5 GB de datos y la base también "duerme"; la primera consulta tras un rato tarda un poco más.
 
 ---
 
 ## 14. Preguntas probables en la sustentación
+
+**¿Cómo se recupera una contraseña sin revelar quién tiene cuenta?**
+La pantalla responde lo mismo exista o no el correo. Solo si existe se envía un código de un solo uso, marcado como
+"recuperación" para que no sirva como código de registro. Al cambiar la contraseña sube `tokenVersion`, y eso cierra
+las sesiones de los demás dispositivos.
+
+**¿Cómo se modera la comunidad?**
+Desde el panel en `/admin`, solo para cuentas administradoras. Se pueden ocultar publicaciones (con aviso al dueño),
+resolver reportes y bloquear usuarios. Cada acción queda registrada con quién la hizo y por qué.
 
 **¿Por qué no guardar la contraseña cifrada en vez de con hash?**
 Lo cifrado se puede descifrar con la clave, y el hash no tiene vuelta atrás. Al iniciar sesión se calcula el hash de
@@ -580,15 +703,19 @@ Por el token JWT que la app envía en el encabezado `Authorization`. El servidor
 y lee el id del usuario. Si alguien altera el token, la firma no coincide y responde 401.
 
 **¿Qué pasa si dos personas intentan reservar el mismo material a la vez?**
-Solo puede haber **un acuerdo activo** por material. El servidor lo comprueba antes de crearlo y responde 409 al segundo.
+Solo puede haber **un acuerdo activo** por material. Comprobarlo y luego crearlo no basta: dos peticiones podrían
+comprobar al mismo tiempo, ver que no hay ninguno y crear dos. Por eso ambas cosas se hacen dentro de una transacción
+**`Serializable`** de PostgreSQL: si dos transacciones se pisan, la base de datos rechaza una, y el servidor responde
+409 "Ya hay una entrega en curso para este material". Hay una prueba automática que envía las dos propuestas en
+paralelo y comprueba que queda un solo acuerdo.
 
 **¿Por qué WebSockets y no consultar cada pocos segundos?**
 Consultar cada pocos segundos (*polling*) genera muchas peticiones vacías y retrasos. El WebSocket mantiene una
 conexión abierta y el servidor avisa en el momento exacto.
 
 **¿Cómo se evita que alguien lea chats ajenos?**
-Cada servicio verifica que el usuario del token sea comprador o vendedor de esa conversación. Si no lo es, responde 403.
-Además, por WebSocket cada usuario solo recibe los eventos de su propia sala.
+Cada servicio verifica que el usuario del token sea comprador o vendedor de esa conversación. Si no lo es, responde
+404, como si no existiera. Además, por WebSocket cada usuario solo recibe los eventos de su propia sala.
 
 **¿Qué es una migración?**
 Un archivo SQL versionado que cambia la estructura de la base de datos. Prisma las genera desde `schema.prisma`, y en
@@ -597,6 +724,21 @@ producción se aplican solas en cada despliegue, así todas las bases quedan con
 **¿Cómo pruebas que las reglas funcionan?**
 Con pruebas automáticas que **intentan romper** cada regla: editar un material ajeno, reseñar dos veces, confirmar un
 acuerdo siendo el comprador… En cada caso se espera el error correcto.
+
+**¿Cómo llega un aviso con la app cerrada?**
+Cuando la app está cerrada no hay conexión en vivo, así que el servidor le pide a **Firebase Cloud Messaging** que
+entregue el aviso al celular, identificado por el token que la app registró al iniciar sesión. Android lo muestra aunque
+la app no esté abierta, y al tocarlo se abre la pantalla correspondiente. Si la app está abierta, en cambio, el aviso
+llega por el WebSocket como ventana emergente, y nunca por los dos caminos.
+
+**¿Dónde están las claves y contraseñas?**
+En ningún archivo de git. En producción están como variables de entorno en Render; en la laptop, en `server/.env` y
+`server/.env.render`, que git ignora. La clave de Firebase y `google-services.json` también están fuera del
+repositorio. Si una clave se filtra, se revoca en su servicio y se genera otra sin tocar el código.
+
+**¿Por qué Brevo y no Gmail directamente?**
+Render gratuito bloquea las conexiones salientes a los puertos de correo (SMTP). Brevo recibe el correo por HTTPS,
+que no está bloqueado, y lo envía desde el Gmail verificado del proyecto.
 
 **¿Qué pasa si se cae el servidor mientras un bot tenía algo pendiente?**
 Los trabajos de los bots están guardados en la tabla `BotJob`. Cuando el servidor vuelve, el worker encuentra los

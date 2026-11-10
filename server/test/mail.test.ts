@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { loadConfig } from '../src/config'
 import { createMailer } from '../src/integrations/mail'
 import { testConfig } from './helpers'
 
@@ -50,5 +51,35 @@ describe('mailer', () => {
     const sent = JSON.parse(fetchImpl.mock.calls[0][1].body)
     expect(sent.html).not.toContain('<a/href')
     expect(sent.html).toContain('&lt;a/href=//evil.pe&gt;Clic&lt;/a&gt;')
+  })
+
+  it('con BREVO_API_KEY envía por la API HTTP de Brevo (Render bloquea SMTP en el plan gratuito)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"messageId":"x"}', { status: 201 }))
+    const m = createMailer(testConfig({ mail: { brevoApiKey: 'xkeysib-1', from: 'EcoEstudiante <eco@gmail.com>' } }), fetchImpl)
+    expect(m.mode).toBe('brevo')
+    await m.sendVerificationCode('ana@upsjb.edu.pe', 'Ana', '123456')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('https://api.brevo.com/v3/smtp/email')
+    expect(init.headers['api-key']).toBe('xkeysib-1')
+    const sent = JSON.parse(init.body)
+    expect(sent).toMatchObject({
+      sender: { name: 'EcoEstudiante', email: 'eco@gmail.com' },
+      to: [{ email: 'ana@upsjb.edu.pe' }],
+      subject: 'Tu código de EcoEstudiante: 123456',
+    })
+    expect(sent.htmlContent).toContain('123456')
+    expect(sent.textContent).toContain('15 minutos')
+  })
+
+  it('si Brevo responde error, lanza AppError 502 MAIL_FAILED', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"code":"unauthorized"}', { status: 401 }))
+    const m = createMailer(testConfig({ mail: { brevoApiKey: 'k', from: 'eco@gmail.com' } }), fetchImpl)
+    await expect(m.sendVerificationCode('ana@upsjb.edu.pe', 'Ana', '1')).rejects.toMatchObject({ status: 502, code: 'MAIL_FAILED' })
+  })
+
+  it('BREVO_API_KEY se lee de las variables de entorno', () => {
+    const config = loadConfig({ DATABASE_URL: 'postgresql://x', JWT_SECRET: 'x'.repeat(32), BREVO_API_KEY: 'xkeysib-2' })
+    expect(config.mail.brevoApiKey).toBe('xkeysib-2')
   })
 })

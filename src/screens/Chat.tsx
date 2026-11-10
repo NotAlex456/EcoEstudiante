@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Icon } from '../components/ui'
 import { navigate } from '../lib/router'
+import { loadMessages, useRefresh } from '../lib/sync'
 import { currentUser, markConversationRead, materialById, priceLabel, sendMessage, userById, useStore } from '../lib/store'
 
 const QUICK_BUYER = ['¿Sigue disponible?', '¿Me lo dejas a menos?', '¿Podemos vernos mañana en la biblioteca?']
@@ -14,6 +15,8 @@ export function Chat({ id }: { id: string }) {
   const other = useStore((s) => (otherId ? userById(s, otherId) : undefined))
   const agreements = useStore((s) => s.agreements)
   const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const { loading } = useRefresh(() => loadMessages(id), [id])
   const endRef = useRef<HTMLDivElement>(null)
   const count = conversation?.messages.length ?? 0
 
@@ -22,6 +25,15 @@ export function Chat({ id }: { id: string }) {
     if (conversation) markConversationRead(conversation.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count])
+
+  if ((!conversation || !material || !other) && loading) {
+    return (
+      <section className="inner-page page-enter">
+        <BackLink label="Volver" fallback="#/actividad/mensajes" />
+        <p className="result-count" role="status">Cargando…</p>
+      </section>
+    )
+  }
 
   if (!conversation || !material || !other) {
     return (
@@ -36,11 +48,14 @@ export function Chat({ id }: { id: string }) {
   const agreement = agreements.find((a) => a.materialId === material.id && a.buyerId === (iAmBuyer ? me.id : other.id) && a.status !== 'Cancelado')
   const quick = iAmBuyer ? QUICK_BUYER : QUICK_SELLER
 
-  const submit = (e?: FormEvent, value = text) => {
+  const submit = async (e?: FormEvent, value = text) => {
     e?.preventDefault()
-    if (!value.trim()) return
-    sendMessage(conversation.id, value)
-    setText('')
+    if (!value.trim() || sending) return
+    setSending(true)
+    const ok = await sendMessage(conversation.id, value)
+    setSending(false)
+    // Si falló, el texto se conserva para reintentar (el error ya se mostró).
+    if (ok && value === text) setText('')
   }
 
   return (
@@ -82,11 +97,11 @@ export function Chat({ id }: { id: string }) {
 
       <div className="chat__composer">
         <div className="quick-replies">
-          {quick.map((q) => <button key={q} onClick={() => submit(undefined, q)}>{q}</button>)}
+          {quick.map((q) => <button key={q} disabled={sending} onClick={() => submit(undefined, q)}>{q}</button>)}
         </div>
         <form onSubmit={submit}>
           <input aria-label="Escribe un mensaje" placeholder="Escribe un mensaje..." value={text} onChange={(e) => setText(e.target.value)} enterKeyHint="send" />
-          <button className="send-button" type="submit" aria-label="Enviar" disabled={!text.trim()}><Icon name="send" size={20} /></button>
+          <button className="send-button" type="submit" aria-label="Enviar" disabled={!text.trim() || sending}><Icon name="send" size={20} /></button>
         </form>
       </div>
     </section>

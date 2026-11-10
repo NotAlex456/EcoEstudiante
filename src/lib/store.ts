@@ -1,10 +1,25 @@
 import { useSyncExternalStore } from 'react'
 import { api, ApiError, getToken, setToken } from './api'
-import { createSeedState, simulatedReply, STATE_VERSION } from './data'
-import type { Agreement, Conversation, Material, ScheduledEvent, State, User } from './types'
+import { createSeedState, STATE_VERSION } from './data'
+import { uploadImages } from './images'
+import {
+  adoptAgreement,
+  adoptConversations,
+  adoptMaterials,
+  adoptMessage,
+  loadConversations,
+  setCachedMaterialStatus,
+  type AgreementDto,
+  type ConversationDto,
+  type MaterialDto,
+  type MessageDto,
+} from './sync'
+import { unregisterPush } from './push'
+import type { Conversation, Material, NotificationPrefs, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
 import { INSTITUTIONAL_EMAIL } from '../../shared/constants'
+import { matchesSearch } from '../../shared/search'
 export { INSTITUTIONAL_EMAIL }
 
 export const uid = (prefix: string) =>
@@ -41,6 +56,9 @@ function setState(updater: (draft: State) => State) {
   persist()
   listeners.forEach((listener) => listener())
 }
+
+/** Para `sync.ts`: escribe en la caché los datos que llegan del servidor. */
+export const updateCache = setState
 
 export function getState() {
   return state
@@ -96,17 +114,17 @@ export const currentUser = (s: State) => s.users.find((u) => u.id === s.sessionU
 export const userById = (s: State, id: string) => s.users.find((u) => u.id === id)
 export const materialById = (s: State, id: string) => s.materials.find((m) => m.id === id)
 
+/**
+ * Reputación: solo la que calcula el servidor con las reseñas recibidas. Las valoraciones de
+ * acuerdos ya son reseñas del servidor; sumarlas aquí las contaría dos veces.
+ */
 export function userRating(s: State, userId: string) {
-  const user = userById(s, userId)
-  const ratings = s.agreements.filter((a) => a.sellerId === userId && a.rating).map((a) => a.rating!.stars)
-  const baseCount = user?.baseRatingCount ?? 0
-  const count = baseCount + ratings.length
-  if (!count) return { value: 0, count: 0 }
-  const total = (user?.baseRating ?? 0) * baseCount + ratings.reduce((a, b) => a + b, 0)
-  return { value: Math.round((total / count) * 10) / 10, count }
+  return userById(s, userId)?.rating ?? { value: 0, count: 0 }
 }
 
-export function unreadCount(s: State, conversation: Conversation, userId: string) {
+/** No leídos: el conteo del servidor (que el socket va sumando) o, si no llegó, lo que hay en caché. */
+export function unreadCount(_s: State, conversation: Conversation, userId: string) {
+  if (conversation.unread !== undefined) return conversation.unread
   const since = conversation.readAt[userId] ?? 0
   return conversation.messages.filter((m) => m.from !== userId && m.at > since).length
 }
@@ -116,22 +134,13 @@ export const initials = (name: string) =>
 
 /* ---------- auth (servidor) ---------- */
 
-type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string }
+type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string; notificationPrefs: NotificationPrefs; role?: 'student' | 'admin' }
 
 /** Guarda al usuario del servidor en la caché local y abre su sesión. */
 function adoptUser(me: MeDto) {
-  const user: User = { id: me.id, name: me.name, email: me.email, career: me.career, cycle: me.cycle, verified: true, createdAt: Date.parse(me.createdAt) }
-  setState((s) => ({ ...s, sessionUserId: user.id, users: [...s.users.filter((u) => u.id !== user.id), user] }))
-}
-
-function welcome(userId: string) {
-  setState((s) => ({
-    ...s,
-    notifications: [
-      ...s.notifications,
-      { id: uid('n'), userId, at: Date.now(), read: false, link: '#/cuenta', text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.' },
-    ],
-  }))
+  const user: User = { id: me.id, name: me.name, email: me.email, career: me.career, cycle: me.cycle, verified: true, createdAt: Date.parse(me.createdAt), notificationPrefs: me.notificationPrefs }
+  // Conserva la reputación que ya trajo el perfil (el servidor la calcula aparte).
+  setState((s) => ({ ...s, sessionUserId: user.id, users: [...s.users.filter((u) => u.id !== user.id), { ...user, rating: userById(s, user.id)?.rating }] }))
 }
 
 type Failure = { error: string; field?: string }
@@ -169,7 +178,6 @@ export async function verifyEmail(userId: string, code: string, password: string
     const { token, user } = await api<AuthResponse>('POST', '/auth/verify', { userId, code: code.trim(), password })
     setToken(token)
     adoptUser(user)
-    welcome(user.id)
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -191,6 +199,27 @@ export async function login(email: string, password: string): Promise<LoginResul
   }
 }
 
+/** Pide un código para cambiar la contraseña. El servidor responde igual exista o no la cuenta. */
+export async function forgotPassword(email: string): Promise<Failure | { ok: true; devCode?: string }> {
+  try {
+    return await api<{ ok: true; devCode?: string }>('POST', '/auth/forgot', { email: email.trim().toLowerCase() })
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Cambia la contraseña con el código e inicia sesión (las sesiones de otros dispositivos se cierran). */
+export async function resetPassword(email: string, code: string, password: string): Promise<Failure | { ok: true }> {
+  try {
+    const { token, user } = await api<AuthResponse>('POST', '/auth/reset', { email: email.trim().toLowerCase(), code: code.trim(), password })
+    setToken(token)
+    adoptUser(user)
+    return { ok: true }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
 /** Al abrir la app: confirma la sesión guardada con el servidor. Sin conexión, conserva la caché. */
 export async function restoreSession() {
   if (!getToken()) {
@@ -205,6 +234,7 @@ export async function restoreSession() {
 }
 
 export function logout() {
+  unregisterPush() // sale antes de borrar la sesión
   setToken(null)
   setState((s) => ({ ...s, sessionUserId: null }))
 }
@@ -219,6 +249,25 @@ export async function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle
   }
 }
 
+/** Guarda en el servidor las preferencias de aviso. Optimista: si falla, vuelve a las anteriores. */
+export async function updateNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<boolean> {
+  const me = currentUser(state)
+  if (!me?.notificationPrefs) return false
+  const before = me.notificationPrefs
+  const next = { ...before, ...patch, categories: { ...before.categories, ...patch.categories } }
+  const apply = (prefs: NotificationPrefs) =>
+    setState((s) => ({ ...s, users: s.users.map((u) => (u.id === me.id ? { ...u, notificationPrefs: prefs } : u)) }))
+  apply(next)
+  try {
+    adoptUser(await api<MeDto>('PATCH', '/users/me', { notificationPrefs: next }))
+    return true
+  } catch (error) {
+    apply(before)
+    toast(failure(error).error, 'error')
+    return false
+  }
+}
+
 export function resetDemo() {
   setToken(null)
   localStorage.removeItem(STORAGE_KEY)
@@ -227,284 +276,236 @@ export function resetDemo() {
   listeners.forEach((l) => l())
 }
 
-/* ---------- materials ---------- */
+/* ---------- materials (servidor) ---------- */
 
-export function toggleSaved(materialId: string) {
+/** Muestra el error del servidor (o de red) y devuelve false. */
+function failed(error: unknown) {
+  toast(failure(error).error, 'error')
+  return false
+}
+
+export async function toggleSaved(materialId: string) {
   const me = state.sessionUserId
   if (!me) return
   const current = state.saved[me] ?? []
   const has = current.includes(materialId)
-  setState((s) => ({ ...s, saved: { ...s.saved, [me]: has ? current.filter((id) => id !== materialId) : [...current, materialId] } }))
-  toast(has ? 'Quitado de guardados' : 'Guardado en Mi actividad')
+  const apply = (ids: string[]) => setState((s) => ({ ...s, saved: { ...s.saved, [me]: ids } }))
+  apply(has ? current.filter((id) => id !== materialId) : [...current, materialId]) // optimista
+  try {
+    await api(has ? 'DELETE' : 'PUT', `/saved/${encodeURIComponent(materialId)}`)
+    toast(has ? 'Quitado de guardados' : 'Guardado en Mi actividad')
+  } catch (error) {
+    apply(current)
+    failed(error)
+  }
 }
 
 export type MaterialInput = Omit<Material, 'id' | 'ownerId' | 'status' | 'createdAt'>
 
-export function publishMaterial(input: MaterialInput) {
+/** Sube las fotos nuevas y devuelve el cuerpo que espera la API. */
+async function materialBody(input: MaterialInput) {
+  return { ...input, exchangeFor: input.exchangeFor || undefined, images: await uploadImages(input.images) }
+}
+
+/** Publica en el servidor. Devuelve el id, o null si falló (el error ya se mostró). */
+export async function publishMaterial(input: MaterialInput): Promise<string | null> {
   const me = state.sessionUserId!
-  const material: Material = { ...input, id: uid('m'), ownerId: me, status: 'Disponible', createdAt: Date.now() }
-  const others = state.users.filter((u) => u.baseRating && u.id !== me)
-  // Chosen now so a background notification can name the student before the event fires.
-  const buyer = others[Math.floor(Math.random() * others.length)]
-  const matches = state.savedSearches.filter((search) => search.userId !== me && matchesSearch(material, search))
-  setState((s) => ({
-    ...s,
-    materials: [material, ...s.materials],
-    notifications: [
-      ...s.notifications,
-      ...matches.map((search) => ({
-        id: uid('n'), userId: search.userId, at: Date.now(), read: false, link: `#/material/${material.id}`,
-        text: `Nuevo material para tu búsqueda “${search.query || search.category}”: ${material.title}`,
-      })),
-    ],
-    scheduled: buyer
-      ? [...s.scheduled, { id: uid('e'), kind: 'buyer-interest', dueAt: Date.now() + 25_000, materialId: material.id, ownerId: me, buyerId: buyer.id, conversationId: uid('c') } as ScheduledEvent]
-      : s.scheduled,
-  }))
-  return material.id
+  let dto: MaterialDto
+  try {
+    dto = await api<MaterialDto>('POST', '/materials', await materialBody(input))
+  } catch (error) {
+    failed(error)
+    return null
+  }
+  adoptMaterials([dto])
+  return dto.id
 }
 
-export function updateMaterial(id: string, input: MaterialInput) {
-  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, ...input } : m)) }))
+export async function updateMaterial(id: string, input: MaterialInput): Promise<boolean> {
+  try {
+    adoptMaterials([await api<MaterialDto>('PATCH', `/materials/${encodeURIComponent(id)}`, await materialBody(input))])
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-export function setMaterialStatus(id: string, status: Material['status']) {
-  setState((s) => ({ ...s, materials: s.materials.map((m) => (m.id === id ? { ...m, status } : m)) }))
+export async function setMaterialStatus(id: string, status: 'Disponible' | 'Pausado' | 'Entregado'): Promise<boolean> {
+  try {
+    adoptMaterials([await api<MaterialDto>('PATCH', `/materials/${encodeURIComponent(id)}/status`, { status })])
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-export function deleteMaterial(id: string) {
+export async function deleteMaterial(id: string): Promise<boolean> {
+  try {
+    await api('DELETE', `/materials/${encodeURIComponent(id)}`)
+  } catch (error) {
+    return failed(error)
+  }
   setState((s) => ({
     ...s,
     materials: s.materials.filter((m) => m.id !== id),
     conversations: s.conversations.filter((c) => c.materialId !== id),
     agreements: s.agreements.filter((a) => a.materialId !== id),
-    scheduled: s.scheduled.filter((e) => !('materialId' in e) || e.materialId !== id),
   }))
+  return true
 }
 
-export function matchesSearch(material: Material, search: { query: string; category: string; mode: string }) {
-  const term = search.query.trim().toLocaleLowerCase()
-  return (
-    (!term || `${material.title} ${material.course} ${material.category}`.toLocaleLowerCase().includes(term)) &&
-    (search.category === 'Todos' || material.category === search.category) &&
-    (search.mode === 'Todos' || material.mode === search.mode)
-  )
-}
+export { matchesSearch }
 
-export function saveSearch(search: { query: string; category: string; mode: string }) {
+type SavedSearchDto = { id: string; query: string; category: string; mode: string; createdAt: string }
+
+export async function saveSearch(search: { query: string; category: string; mode: string }) {
   const me = state.sessionUserId!
-  setState((s) => ({ ...s, savedSearches: [...s.savedSearches, { ...search, id: uid('s'), userId: me, at: Date.now() }] }))
-  toast('Búsqueda guardada: te avisaremos cuando alguien publique algo así.')
+  try {
+    const saved = await api<SavedSearchDto>('POST', '/saved-searches', search)
+    setState((s) => ({
+      ...s,
+      savedSearches: [...s.savedSearches.filter((x) => x.id !== saved.id), { ...search, id: saved.id, userId: me, at: Date.parse(saved.createdAt) }],
+    }))
+    toast('Búsqueda guardada: te avisaremos cuando alguien publique algo así.')
+  } catch (error) {
+    failed(error)
+  }
 }
 
-export function deleteSavedSearch(id: string) {
+export async function deleteSavedSearch(id: string) {
+  try {
+    await api('DELETE', `/saved-searches/${encodeURIComponent(id)}`)
+  } catch (error) {
+    // Si ya no existía en el servidor, igual se quita de la caché.
+    if (!(error instanceof ApiError && error.status === 404)) return void failed(error)
+  }
   setState((s) => ({ ...s, savedSearches: s.savedSearches.filter((x) => x.id !== id) }))
 }
 
-export function reportMaterial(materialId: string, reason: string, detail: string) {
+export async function reportMaterial(materialId: string, reason: string, detail: string): Promise<boolean> {
   const me = state.sessionUserId!
+  try {
+    await api('POST', '/reports', { materialId, reason, detail })
+  } catch (error) {
+    return failed(error)
+  }
+  // Se guarda en la caché para seguir ocultando el material en Explorar.
   setState((s) => ({ ...s, reports: [...s.reports, { id: uid('r'), materialId, userId: me, reason, detail, at: Date.now() }] }))
   toast('Gracias por avisar. La moderación revisará la publicación.')
+  return true
 }
 
-/* ---------- conversations ---------- */
+/* ---------- conversations (servidor) ---------- */
 
-export function openConversation(materialId: string, otherId?: string) {
-  const me = state.sessionUserId!
-  const material = materialById(state, materialId)!
-  const partner = otherId ?? material.ownerId
-  const existing = state.conversations.find((c) => c.materialId === materialId && c.participants.includes(me) && c.participants.includes(partner))
-  if (existing) return existing.id
-  const conversation: Conversation = { id: uid('c'), materialId, participants: [me, partner], messages: [], readAt: { [me]: Date.now() } }
-  setState((s) => ({ ...s, conversations: [...s.conversations, conversation] }))
-  return conversation.id
-}
-
-function pushMessage(s: State, conversationId: string, from: string, text: string): State {
-  return {
-    ...s,
-    conversations: s.conversations.map((c) =>
-      c.id === conversationId ? { ...c, messages: [...c.messages, { id: uid('msg'), from, text, at: Date.now() }] } : c,
-    ),
+/** Abre (o reutiliza) el chat con quien publicó. Devuelve su id, o null si falló (el error ya se mostró). */
+export async function openConversation(materialId: string): Promise<string | null> {
+  try {
+    const dto = await api<ConversationDto>('POST', '/conversations', { materialId })
+    adoptConversations([dto])
+    return dto.id
+  } catch (error) {
+    failed(error)
+    return null
   }
 }
 
-const isSimulated = (userId: string) => Boolean(userById(state, userId)?.baseRating)
-
-export function sendMessage(conversationId: string, text: string) {
+export async function sendMessage(conversationId: string, text: string): Promise<boolean> {
   const me = state.sessionUserId!
-  const conversation = state.conversations.find((c) => c.id === conversationId)
-  if (!conversation || !text.trim()) return
-  const other = conversation.participants.find((p) => p !== me)!
-  const material = materialById(state, conversation.materialId)!
-  setState((s) => {
-    let next = pushMessage(s, conversationId, me, text.trim())
-    next = { ...next, conversations: next.conversations.map((c) => (c.id === conversationId ? { ...c, readAt: { ...c.readAt, [me]: Date.now() } } : c)) }
-    if (isSimulated(other)) {
-      const reply = material.ownerId === other ? simulatedReply(text, material) : buyerReply(conversation)
-      next.scheduled = [...next.scheduled, { id: uid('e'), kind: 'reply', dueAt: Date.now() + 1800 + Math.random() * 1500, conversationId, from: other, text: reply }]
-    }
-    return next
-  })
+  try {
+    const message = await api<MessageDto>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages`, { text: text.trim() })
+    adoptMessage(conversationId, message)
+    setState((s) => ({
+      ...s,
+      conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, readAt: { ...c.readAt, [me]: Date.parse(message.createdAt) } } : c)),
+    }))
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-function buyerReply(conversation: Conversation) {
-  const sent = conversation.messages.filter((m) => m.from !== state.sessionUserId).length
-  return sent < 2 ? '¡Genial! ¿Te parece mañana a las 12:30 en la biblioteca central?' : 'Perfecto, ahí nos vemos. ¡Gracias! 🙌'
-}
-
+/** Marca el chat como leído (en la caché al instante; en el servidor sin esperar). */
 export function markConversationRead(conversationId: string) {
   const me = state.sessionUserId!
-  setState((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, readAt: { ...c.readAt, [me]: Date.now() } } : c)) }))
+  const conversation = state.conversations.find((c) => c.id === conversationId)
+  if (!conversation) return
+  const last = conversation.messages.at(-1)
+  if (!conversation.unread && (!last || last.from === me || (conversation.readAt[me] ?? 0) >= last.at)) return
+  setState((s) => ({
+    ...s,
+    conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, unread: 0, readAt: { ...c.readAt, [me]: Date.now() } } : c)),
+  }))
+  api('POST', `/conversations/${encodeURIComponent(conversationId)}/read`).catch(() => undefined)
 }
 
-/* ---------- agreements ---------- */
+/* ---------- agreements (servidor) ---------- */
 
-export function proposeAgreement(input: { materialId: string; place: string; date: string; time: string; note: string }) {
-  const me = state.sessionUserId!
-  const material = materialById(state, input.materialId)!
-  const conversationId = openConversation(input.materialId)
-  const agreement: Agreement = {
-    id: uid('a'), materialId: material.id, buyerId: me, sellerId: material.ownerId,
-    place: input.place, date: input.date, time: input.time, note: input.note.trim() || undefined,
-    status: 'Pendiente', createdAt: Date.now(), updatedAt: Date.now(),
+/** Aplica la respuesta del servidor y, si cambió, el estado del material en la caché. */
+function applyAgreement(dto: AgreementDto, materialStatus?: Material['status']) {
+  adoptAgreement(dto)
+  if (materialStatus) setCachedMaterialStatus(dto.materialId, materialStatus)
+}
+
+export async function proposeAgreement(input: { materialId: string; place: string; date: string; time: string; note: string }): Promise<string | null> {
+  try {
+    const dto = await api<AgreementDto>('POST', '/agreements', { ...input, note: input.note.trim() || undefined })
+    applyAgreement(dto)
+    // El mensaje de propuesta quedó en el chat: se trae la conversación (por si era nueva).
+    loadConversations().catch(() => undefined)
+    return dto.id
+  } catch (error) {
+    failed(error)
+    return null
   }
-  setState((s) => {
-    let next = pushMessage(s, conversationId, me, `📍 Propuesta de entrega: ${input.place}, ${formatDate(input.date)} a las ${formatTime(input.time)}.${agreement.note ? ` Nota: ${agreement.note}` : ''}`)
-    next = { ...next, agreements: [...next.agreements, agreement] }
-    if (isSimulated(material.ownerId))
-      next.scheduled = [...next.scheduled, { id: uid('e'), kind: 'confirm-agreement', dueAt: Date.now() + 4000, agreementId: agreement.id }]
-    return next
-  })
-  return agreement.id
 }
 
-function updateAgreement(id: string, patch: Partial<Agreement>) {
-  setState((s) => ({ ...s, agreements: s.agreements.map((a) => (a.id === id ? { ...a, ...patch, updatedAt: Date.now() } : a)) }))
+async function agreementAction(id: string, action: string, body?: unknown, materialStatus?: Material['status']) {
+  try {
+    applyAgreement(await api<AgreementDto>('POST', `/agreements/${encodeURIComponent(id)}/${action}`, body), materialStatus)
+    return true
+  } catch (error) {
+    return failed(error)
+  }
 }
 
-export function cancelAgreement(id: string) {
-  const agreement = state.agreements.find((a) => a.id === id)!
-  updateAgreement(id, { status: 'Cancelado' })
-  const material = materialById(state, agreement.materialId)
-  if (material?.status === 'Reservado') setMaterialStatus(material.id, 'Disponible')
-  toast('Acuerdo cancelado. Avisamos al otro estudiante.')
+/** El vendedor confirma la propuesta: el material queda Reservado. */
+export async function confirmAgreement(id: string) {
+  const ok = await agreementAction(id, 'confirm', undefined, 'Reservado')
+  if (ok) toast('Entrega confirmada. Avisamos al otro estudiante.')
+  return ok
 }
 
-export function confirmReception(id: string) {
-  const agreement = state.agreements.find((a) => a.id === id)!
-  updateAgreement(id, { status: 'Completado' })
-  setMaterialStatus(agreement.materialId, 'Entregado')
+export async function cancelAgreement(id: string) {
+  const agreement = state.agreements.find((a) => a.id === id)
+  const freed = agreement?.status === 'Confirmado' ? 'Disponible' : undefined
+  const ok = await agreementAction(id, 'cancel', undefined, freed)
+  if (ok) toast('Acuerdo cancelado. Avisamos al otro estudiante.')
+  return ok
 }
 
-export function rateAgreement(id: string, stars: number, comment: string) {
-  updateAgreement(id, { rating: { stars, comment: comment.trim(), at: Date.now() } })
-  toast('¡Gracias! Tu valoración ayuda a otros estudiantes.')
+export async function confirmReception(id: string) {
+  return agreementAction(id, 'complete', undefined, 'Entregado')
 }
 
-/* ---------- notifications ---------- */
+export async function rateAgreement(id: string, stars: number, comment: string) {
+  const ok = await agreementAction(id, 'review', { stars, comment: comment.trim() })
+  if (ok) toast('¡Gracias! Tu valoración ayuda a otros estudiantes.')
+  return ok
+}
+
+/* ---------- notifications (servidor) ---------- */
 
 export function markNotificationsRead() {
   const me = state.sessionUserId
+  if (!state.notifications.some((n) => n.userId === me && !n.read)) return
   setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.userId === me ? { ...n, read: true } : n)) }))
-}
-
-/* ---------- simulated events ---------- */
-
-export function processScheduled(now = Date.now()) {
-  const due = state.scheduled.filter((e) => e.dueAt <= now)
-  if (!due.length) return
-  setState((s) => {
-    let next: State = { ...s, scheduled: s.scheduled.filter((e) => e.dueAt > now) }
-    for (const event of due) next = applyEvent(next, event)
-    return next
-  })
-}
-
-type Notice = { userId: string; text: string; link: string }
-
-function interestedBuyer(s: State, event: Extract<ScheduledEvent, { kind: 'buyer-interest' }>) {
-  const chosen = event.buyerId && userById(s, event.buyerId)
-  if (chosen) return chosen
-  const candidates = s.users.filter((u) => u.baseRating && u.id !== event.ownerId)
-  return candidates[Math.floor(Math.random() * candidates.length)]
-}
-
-/** What the notification of a simulated event will say, or null if the event no longer applies. */
-export function eventNotice(s: State, event: ScheduledEvent): Notice | null {
-  if (event.kind === 'reply') {
-    const conversation = s.conversations.find((c) => c.id === event.conversationId)
-    if (!conversation) return null
-    const sender = userById(s, event.from)
-    return {
-      userId: conversation.participants.find((p) => p !== event.from)!,
-      link: `#/chat/${conversation.id}`,
-      text: `${sender?.name.split(' ')[0]} te respondió: “${event.text}”`,
-    }
-  }
-  if (event.kind === 'confirm-agreement') {
-    const agreement = s.agreements.find((a) => a.id === event.agreementId)
-    if (!agreement || agreement.status !== 'Pendiente') return null
-    const seller = userById(s, agreement.sellerId)
-    return { userId: agreement.buyerId, link: `#/acuerdo/${agreement.id}`, text: `${seller?.name.split(' ')[0]} confirmó la entrega en ${agreement.place}.` }
-  }
-  const material = s.materials.find((m) => m.id === event.materialId)
-  if (!material || material.status !== 'Disponible' || !event.conversationId) return null
-  const buyer = interestedBuyer(s, event)
-  return {
-    userId: event.ownerId,
-    link: `#/chat/${event.conversationId}`,
-    text: `${buyer.name.split(' ')[0]} está interesado/a en “${material.title}”.`,
-  }
-}
-
-/** Notifications made by an event share its id, so a background alert isn't repeated in the app. */
-export const noticeId = (event: ScheduledEvent) => `n-${event.id}`
-
-function applyEvent(s: State, event: ScheduledEvent): State {
-  // Events saved before conversation ids were chosen up front.
-  if (event.kind === 'buyer-interest' && !event.conversationId) event = { ...event, conversationId: uid('c') }
-  const notice = eventNotice(s, event)
-  if (!notice) return s
-  const withNotice = (next: State): State => ({
-    ...next,
-    notifications: [...next.notifications, { id: noticeId(event), read: false, at: Date.now(), ...notice }],
-  })
-  if (event.kind === 'reply') return withNotice(pushMessage(s, event.conversationId, event.from, event.text))
-  if (event.kind === 'confirm-agreement') {
-    const agreement = s.agreements.find((a) => a.id === event.agreementId)!
-    const conversation = s.conversations.find((c) => c.materialId === agreement.materialId && c.participants.includes(agreement.buyerId) && c.participants.includes(agreement.sellerId))
-    let next: State = {
-      ...s,
-      agreements: s.agreements.map((a) => (a.id === agreement.id ? { ...a, status: 'Confirmado', updatedAt: Date.now() } : a)),
-      materials: s.materials.map((m) => (m.id === agreement.materialId ? { ...m, status: 'Reservado' } : m)),
-    }
-    if (conversation) next = pushMessage(next, conversation.id, agreement.sellerId, '✅ ¡Confirmado! Nos vemos ahí. Llevaré el material.')
-    return withNotice(next)
-  }
-  const material = s.materials.find((m) => m.id === event.materialId)!
-  const buyer = interestedBuyer(s, event)
-  const text = material.mode === 'Donación'
-    ? `¡Hola! Me serviría mucho ${material.title}. ¿Aún lo estás donando?`
-    : `¡Hola! Me interesa ${material.title}. ¿Sigue disponible?`
-  const conversation: Conversation = {
-    id: event.conversationId!, materialId: material.id, participants: [buyer.id, event.ownerId], readAt: {},
-    messages: [{ id: uid('msg'), from: buyer.id, text, at: Date.now() }],
-  }
-  return withNotice({ ...s, conversations: [...s.conversations, conversation] })
+  api('POST', '/notifications/read-all').catch(() => undefined)
 }
 
 /* ---------- formatting ---------- */
 
-export function formatDate(iso: string) {
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })
-}
-
-export function formatTime(hhmm: string) {
-  const [h, m] = hhmm.split(':').map(Number)
-  return new Date(2000, 0, 1, h, m).toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit' })
-}
+import { formatDate, formatTime } from '../../shared/format'
+export { formatDate, formatTime }
 
 export function timeAgo(at: number) {
   const diff = Math.max(0, Date.now() - at) / 1000

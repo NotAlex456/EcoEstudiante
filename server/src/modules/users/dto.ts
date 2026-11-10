@@ -15,6 +15,7 @@ export type MeDto = {
   cycle: number
   verified: true
   notificationPrefs: NotificationPrefs
+  role: 'student' | 'admin'
   createdAt: string
 }
 
@@ -26,5 +27,6 @@ export const toMe = (user: User): MeDto => ({
   cycle: user.cycle,
   verified: true,
   notificationPrefs: user.notificationPrefs as NotificationPrefs,
+  role: user.role,
   createdAt: user.createdAt.toISOString(),
 })

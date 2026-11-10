@@ -1,39 +1,58 @@
 import { useEffect, useState } from 'react'
 import { BackLink, Button, Icon, Switch } from '../components/ui'
-import { alertInApp, exactAlarmsAllowed, openExactAlarmSetting, requestSystemPermission, systemPermission, testSystemNotification, type SystemPermission } from '../lib/alerts'
+import { api, ApiError } from '../lib/api'
+import { alertInApp, requestSystemPermission, serverPrefs, systemPermission, testSystemNotification, type SystemPermission } from '../lib/alerts'
+import { registerPush } from '../lib/push'
 import { CATEGORY_LABELS, resetAccessibility, updateSettings, useSettings, type NotificationCategory, type TextSize } from '../lib/settings'
-import { toast } from '../lib/store'
+import { currentUser, toast, updateNotificationPrefs, useStore } from '../lib/store'
+import type { NotificationPrefs } from '../lib/types'
 
 export function NotificationSettings() {
   const { notifications } = useSettings()
+  // Push, horario silencioso y categorías se guardan en el servidor; lo demás, en este dispositivo.
+  const prefs = useStore((s) => currentUser(s)?.notificationPrefs) ?? serverPrefs()
+  const [saving, setSaving] = useState(false)
   const [permission, setPermission] = useState<SystemPermission>('unsupported')
-  const [exactAlarms, setExactAlarms] = useState(true)
 
   // Re-read while open: the person may come back from the phone's settings.
   useEffect(() => {
-    const check = () => {
-      systemPermission().then(setPermission).catch(() => undefined)
-      exactAlarmsAllowed().then(setExactAlarms).catch(() => undefined)
-    }
+    const check = () => systemPermission().then(setPermission).catch(() => undefined)
     check()
     const timer = setInterval(check, 2000)
     return () => clearInterval(timer)
   }, [])
 
-  const testSystem = async (seconds: number) => {
-    if (!(await testSystemNotification(seconds))) return toast('Primero permite las notificaciones de Android (arriba).', 'error')
-    toast(seconds ? 'Ahora sal de la app o bloquea el celular: el aviso llegará en 10 segundos.' : 'Revisa la barra de notificaciones: el aviso debió aparecer.')
+  const savePrefs = async (patch: Partial<NotificationPrefs>) => {
+    setSaving(true)
+    await updateNotificationPrefs(patch)
+    setSaving(false)
+  }
+
+  const testNow = async () => {
+    if (!(await testSystemNotification())) return toast('Primero permite las notificaciones de Android (arriba).', 'error')
+    toast('Revisa la barra de notificaciones: el aviso debió aparecer.')
+  }
+
+  const testClosed = async () => {
+    try {
+      await api('POST', '/devices/test')
+      toast('Cierra la app ahora: el aviso llegará en 10 segundos.')
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : 'No pudimos programar la prueba.', 'error')
+    }
   }
 
   const set = (patch: Partial<typeof notifications>) => updateSettings({ notifications: patch })
   const setCategory = (category: NotificationCategory, on: boolean) =>
-    set({ categories: { ...notifications.categories, [category]: on } })
+    savePrefs({ categories: { ...prefs.categories, [category]: on } })
 
-  const enableSystem = async (on: boolean) => {
-    set({ system: on })
+  const enablePush = async (on: boolean) => {
+    await savePrefs({ push: on })
     if (on && permission !== 'granted') {
       const result = await requestSystemPermission()
       setPermission(result)
+      // Con el permiso recién concedido, registra este celular para recibir push (antes solo pasaba al iniciar sesión).
+      if (result === 'granted') void registerPush()
       if (result === 'denied') toast('Android bloqueó las notificaciones. Actívalas en Ajustes del teléfono › Apps › EcoEstudiante.', 'error')
     }
   }
@@ -54,13 +73,14 @@ export function NotificationSettings() {
           </label>
         )}
         <Switch label="Vibración" checked={notifications.vibrate} onChange={(vibrate) => set({ vibrate })} />
-        <Switch label="Silenciar de noche" detail="Sin sonido ni vibración de 10:00 p. m. a 7:00 a. m." checked={notifications.quietNight} onChange={(quietNight) => set({ quietNight })} />
+        <Switch label="Silenciar de noche" detail="Sin avisos ni sonido de 10:00 p. m. a 7:00 a. m." checked={prefs.quietNight} disabled={saving} onChange={(quietNight) => savePrefs({ quietNight })} />
         {permission !== 'unsupported' && (
           <Switch
             label="Avisos con la app cerrada"
-            detail={permission === 'denied' ? 'Bloqueado por Android: actívalo en Ajustes del teléfono › Apps › EcoEstudiante' : 'Notificaciones de Android cuando EcoEstudiante está en segundo plano'}
-            checked={notifications.system && permission === 'granted'}
-            onChange={enableSystem}
+            detail={permission === 'denied' ? 'Bloqueado por Android: actívalo en Ajustes del teléfono › Apps › EcoEstudiante' : 'Notificaciones de Android cuando EcoEstudiante está cerrada o en segundo plano'}
+            checked={prefs.push && permission === 'granted'}
+            disabled={saving}
+            onChange={enablePush}
           />
         )}
       </div>
@@ -72,17 +92,13 @@ export function NotificationSettings() {
         <div className="settings-group">
           <div className="setting-row">
             <span><strong>Permiso de notificaciones</strong><small>{permission === 'granted' ? 'Permitido' : permission === 'denied' ? 'Bloqueado: actívalo en Ajustes del teléfono › Apps › EcoEstudiante › Notificaciones' : 'Aún no concedido'}</small></span>
-            {permission === 'granted' ? <span className="status-dot status-dot--ok">Listo</span> : <Button variant="secondary" onClick={() => enableSystem(true)}>Permitir</Button>}
-          </div>
-          <div className="setting-row">
-            <span><strong>Avisos puntuales</strong><small>{exactAlarms ? 'Android entrega los avisos a tiempo' : 'Android puede retrasar los avisos varios minutos'}</small></span>
-            {exactAlarms ? <span className="status-dot status-dot--ok">Listo</span> : <Button variant="secondary" onClick={() => openExactAlarmSetting()}>Permitir</Button>}
+            {permission === 'granted' ? <span className="status-dot status-dot--ok">Listo</span> : <Button variant="secondary" onClick={() => enablePush(true)}>Permitir</Button>}
           </div>
         </div>
-        <Button variant="secondary" className="full-button" onClick={() => testSystem(0)}>
+        <Button variant="secondary" className="full-button" onClick={testNow}>
           <Icon name="bell" size={18} /> Paso 1: probar aviso de Android ahora
         </Button>
-        <Button variant="secondary" className="full-button" onClick={() => testSystem(10)}>
+        <Button variant="secondary" className="full-button" onClick={testClosed}>
           <Icon name="clock" size={18} /> Paso 2: probar con la app cerrada (10 s)
         </Button>
       </>}
@@ -90,7 +106,7 @@ export function NotificationSettings() {
       <h2 className="settings-heading">Sobre qué te avisamos</h2>
       <div className="settings-group">
         {(Object.keys(CATEGORY_LABELS) as NotificationCategory[]).map((category) => (
-          <Switch key={category} label={CATEGORY_LABELS[category].title} detail={CATEGORY_LABELS[category].detail} checked={notifications.categories[category]} onChange={(on) => setCategory(category, on)} />
+          <Switch key={category} label={CATEGORY_LABELS[category].title} detail={CATEGORY_LABELS[category].detail} checked={prefs.categories[category]} disabled={saving} onChange={(on) => setCategory(category, on)} />
         ))}
       </div>
       <div className="notice notice--soft"><Icon name="info" /><p><strong>No te perderás nada</strong><span>Aunque apagues un tipo de aviso, lo seguirás viendo en la campana de notificaciones.</span></p></div>

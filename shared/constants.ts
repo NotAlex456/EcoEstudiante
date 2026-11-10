@@ -1,18 +1,23 @@
 /** Constantes compartidas entre la app (src/) y el servidor (server/). */
 
 export const MODES = ['Venta', 'Intercambio', 'Donación'] as const
-export const CATEGORIES = ['Libros', 'Apuntes', 'Calculadoras', 'Separatas'] as const
+/** Categorías de ejemplo: completan las tarjetas de Explorar cuando hay pocas. La categoría se escribe libremente. */
+export const SEED_CATEGORIES = ['Libros', 'Apuntes', 'Calculadoras', 'Separatas']
 export const CONDITIONS = ['Como nuevo', 'Buen estado', 'Usado'] as const
-export const CAREERS = ['Ingeniería de Sistemas', 'Administración', 'Contabilidad', 'Enfermería', 'Derecho']
+/** Carreras de pregrado de la UPSJB, filial Chincha. */
+export const CAREERS = [
+  'Medicina Humana',
+  'Enfermería',
+  'Psicología',
+  'Tecnología Médica – Laboratorio Clínico y Anatomía Patológica',
+  'Tecnología Médica – Terapia Física y Rehabilitación',
+  'Derecho',
+  'Administración de Empresas',
+  'Contabilidad',
+  'Ingeniería de Sistemas',
+  'Ingeniería Agroindustrial',
+]
 export const CYCLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-export const COURSES: Record<string, string[]> = {
-  'Ingeniería de Sistemas': ['Matemática I', 'Cálculo I', 'Programación I', 'Física I', 'Base de Datos', 'Estadística General'],
-  Administración: ['Matemática Básica', 'Estadística General', 'Contabilidad General', 'Microeconomía', 'Marketing'],
-  Contabilidad: ['Contabilidad I', 'Matemática Financiera', 'Estadística General', 'Tributación', 'Costos'],
-  Enfermería: ['Anatomía', 'Bioquímica', 'Fundamentos de Enfermería', 'Farmacología'],
-  Derecho: ['Introducción al Derecho', 'Derecho Civil I', 'Derecho Constitucional', 'Redacción Jurídica'],
-}
 
 export const SAFE_POINTS = [
   { name: 'Biblioteca central', detail: 'Ingreso principal, junto al módulo de préstamos.' },

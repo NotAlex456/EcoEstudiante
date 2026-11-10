@@ -29,6 +29,17 @@ describe('seed', () => {
     expect((await prisma.material.findUniqueOrThrow({ where: { id: reserved.id } })).status).toBe('Reservado')
   })
 
+  it('volver a sembrar no pisa lo que cambió en uso (Render reinicia y siembra en cada arranque)', async () => {
+    await seed(prisma)
+    await prisma.material.update({ where: { id: 'm-1' }, data: { status: 'Entregado' } })
+    const imageIds = (await prisma.materialImage.findMany({ where: { materialId: 'm-1' }, select: { id: true } })).map((i) => i.id)
+    const bot = await prisma.user.findUniqueOrThrow({ where: { id: SEED_MATERIALS[0].ownerId } })
+    await seed(prisma)
+    expect((await prisma.material.findUniqueOrThrow({ where: { id: 'm-1' } })).status).toBe('Entregado')
+    expect((await prisma.materialImage.findMany({ where: { materialId: 'm-1' }, select: { id: true } })).map((i) => i.id)).toEqual(imageIds)
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: bot.id } })).passwordHash).toBe(bot.passwordHash)
+  })
+
   it('es idempotente', async () => {
     await seed(prisma)
     const first = await counts()

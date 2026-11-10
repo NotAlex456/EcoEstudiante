@@ -11,12 +11,7 @@ export type Settings = {
     popup: boolean
     sound: boolean
     vibrate: boolean
-    /** Android notifications while the app is in the background. */
-    system: boolean
     volume: number
-    /** No sound or vibration from 22:00 to 07:00. */
-    quietNight: boolean
-    categories: Record<NotificationCategory, boolean>
   }
   a11y: {
     textSize: TextSize
@@ -32,10 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
     popup: true,
     sound: true,
     vibrate: true,
-    system: true,
     volume: 0.8,
-    quietNight: false,
-    categories: { mensajes: true, acuerdos: true, busquedas: true, cuenta: true },
   },
   a11y: { textSize: 'normal', highContrast: false, reduceMotion: false, readingSpacing: false, boldText: false },
 }
@@ -54,10 +46,12 @@ function load(): Settings {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<Settings> | null
     if (saved) {
       return {
+        // Solo lo que sigue siendo del dispositivo; categorías y horario silencioso ahora viven en el servidor.
         notifications: {
-          ...DEFAULT_SETTINGS.notifications,
-          ...saved.notifications,
-          categories: { ...DEFAULT_SETTINGS.notifications.categories, ...saved.notifications?.categories },
+          popup: saved.notifications?.popup ?? DEFAULT_SETTINGS.notifications.popup,
+          sound: saved.notifications?.sound ?? DEFAULT_SETTINGS.notifications.sound,
+          vibrate: saved.notifications?.vibrate ?? DEFAULT_SETTINGS.notifications.vibrate,
+          volume: saved.notifications?.volume ?? DEFAULT_SETTINGS.notifications.volume,
         },
         a11y: { ...DEFAULT_SETTINGS.a11y, ...saved.a11y },
       }
@@ -114,7 +108,3 @@ export function applyAccessibility() {
   root.toggleAttribute('data-negrita', a11y.boldText)
 }
 
-export function isQuietTime(date = new Date()) {
-  const hour = date.getHours()
-  return settings.notifications.quietNight && (hour >= 22 || hour < 7)
-}

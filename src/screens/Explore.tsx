@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { foldText } from '../../shared/text'
+import { Select } from '../components/inputs'
 import { Button, EmptyState, Icon, IconName, MaterialCard } from '../components/ui'
-import { CAREERS, CATEGORIES, CONDITIONS, CYCLES, MODES } from '../lib/data'
+import { CAREERS, CONDITIONS, CYCLES, MODES, rankedValues, SEED_CATEGORY_LIST } from '../lib/data'
 import { currentUser, matchesSearch, saveSearch, toggleSaved, useStore } from '../lib/store'
+import { loadMaterials, useRefresh } from '../lib/sync'
 
 const categoryIcons: Record<string, IconName> = { Libros: 'book', Apuntes: 'notes', Calculadoras: 'calculator', Separatas: 'file' }
 
@@ -29,6 +32,7 @@ export function Explore() {
   const savedSearches = useStore((s) => s.savedSearches)
   const [filters, setFilters] = useState<Filters>(remembered)
   const [showFilters, setShowFilters] = useState(false)
+  const { loading } = useRefresh(loadMaterials, [])
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }))
 
   useEffect(() => { remembered = filters }, [filters])
@@ -49,6 +53,15 @@ export function Explore() {
       return b.createdAt - a.createdAt
     })
   }, [visible, filters])
+
+  // Tarjetas: las 6 categorías con más materiales disponibles, completadas con las de ejemplo.
+  const topCategories = useMemo(() => {
+    const ranked = rankedValues(visible.filter((m) => m.status === 'Disponible'), (m) => m.category)
+    const names = ranked.map((c) => c.name)
+    const filler = SEED_CATEGORY_LIST.filter((c) => !names.some((n) => foldText(n) === foldText(c))).map((name) => ({ name, count: 0 }))
+    return [...ranked, ...filler].slice(0, 6)
+  }, [visible])
+  const isCategory = (label: string) => filters.category !== 'Todos' && foldText(filters.category) === foldText(label)
 
   const activeFilters = ['career', 'cycle', 'condition', 'mode'].filter((k) => !['Todas', 'Todos'].includes(filters[k as keyof Filters])).length + (filters.maxPrice ? 1 : 0)
   const alreadySaved = savedSearches.some((s) => s.userId === me.id && s.query === filters.query && s.category === filters.category && s.mode === filters.mode)
@@ -80,11 +93,11 @@ export function Explore() {
       <div className="category-section">
         <div className="section-heading"><div><p className="eyebrow">Explora fácilmente</p><h2>¿Qué estás buscando?</h2></div><button onClick={() => set({ category: 'Todos' })}>Ver todo</button></div>
         <div className="categories">
-          {CATEGORIES.map((label, index) => (
-            <button className={filters.category === label ? 'is-active' : ''} key={label} aria-pressed={filters.category === label} onClick={() => set({ category: filters.category === label ? 'Todos' : label })}>
-              <span className={`category-icon category-icon--${index}`}><Icon name={categoryIcons[label]} /></span>
-              <strong>{label}</strong>
-              <small>{visible.filter((m) => m.category === label).length} disponibles</small>
+          {topCategories.map(({ name, count }, index) => (
+            <button className={isCategory(name) ? 'is-active' : ''} key={name} aria-pressed={isCategory(name)} onClick={() => set({ category: isCategory(name) ? 'Todos' : name })}>
+              <span className={`category-icon category-icon--${index % 4}`}><Icon name={categoryIcons[name] ?? 'tag'} /></span>
+              <strong>{name}</strong>
+              <small>{count} {count === 1 ? 'disponible' : 'disponibles'}</small>
             </button>
           ))}
         </div>
@@ -101,15 +114,17 @@ export function Explore() {
           ))}
         </div>
         <div className={`filters ${showFilters ? 'is-open' : ''}`}>
-          <label><span>Carrera</span><select value={filters.career} onChange={(e) => set({ career: e.target.value })}><option>Todas</option>{CAREERS.map((c) => <option key={c}>{c}</option>)}</select></label>
-          <label><span>Ciclo</span><select value={filters.cycle} onChange={(e) => set({ cycle: e.target.value })}><option>Todos</option>{CYCLES.map((c) => <option key={c} value={c}>{c}.° ciclo</option>)}</select></label>
-          <label><span>Estado</span><select value={filters.condition} onChange={(e) => set({ condition: e.target.value })}><option>Todos</option>{CONDITIONS.map((c) => <option key={c}>{c}</option>)}</select></label>
+          <label><span>Carrera</span><Select label="Carrera" value={filters.career} options={[{ value: 'Todas', label: 'Todas' }, ...CAREERS.map((c) => ({ value: c, label: c }))]} onChange={(career) => set({ career })} /></label>
+          <label><span>Ciclo</span><Select label="Ciclo" value={filters.cycle} options={[{ value: 'Todos', label: 'Todos' }, ...CYCLES.map((c) => ({ value: String(c), label: `${c}.° ciclo` }))]} onChange={(cycle) => set({ cycle })} /></label>
+          <label><span>Estado</span><Select label="Estado" value={filters.condition} options={['Todos', ...CONDITIONS].map((c) => ({ value: c, label: c }))} onChange={(condition) => set({ condition })} /></label>
           <label><span>Precio máx. (S/)</span><input type="number" inputMode="numeric" min="0" placeholder="Sin límite" value={filters.maxPrice} onChange={(e) => set({ maxPrice: e.target.value })} /></label>
-          <label><span>Ordenar</span><select value={filters.sort} onChange={(e) => set({ sort: e.target.value as Filters['sort'] })}><option value="recientes">Más recientes</option><option value="precio">Menor precio</option></select></label>
+          <label><span>Ordenar</span><Select label="Ordenar" value={filters.sort} options={[{ value: 'recientes', label: 'Más recientes' }, { value: 'precio', label: 'Menor precio' }] as { value: Filters['sort']; label: string }[]} onChange={(sort) => set({ sort })} /></label>
           <button className="filters__clear" onClick={() => setFilters({ ...emptyFilters, query: filters.query })}>Limpiar filtros</button>
         </div>
         <p className="result-count"><strong>{filtered.length}</strong> {filtered.length === 1 ? 'material encontrado' : 'materiales encontrados'} {filters.query && <>para “{filters.query}”</>}</p>
-        {filtered.length ? (
+        {loading && !materials.length ? (
+          <p className="result-count" role="status">Cargando…</p>
+        ) : filtered.length ? (
           <div className="materials-grid">
             {filtered.map((m) => <MaterialCard key={m.id} material={m} mine={m.ownerId === me.id} saved={saved.includes(m.id)} onSave={() => toggleSaved(m.id)} />)}
           </div>

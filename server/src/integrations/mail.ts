@@ -3,8 +3,9 @@ import type { Config } from '../config'
 import { AppError } from '../errors'
 
 export type Mailer = {
-  mode: 'resend' | 'smtp' | 'console'
+  mode: 'brevo' | 'resend' | 'smtp' | 'console'
   sendVerificationCode(to: string, name: string, code: string): Promise<void>
+  sendPasswordResetCode(to: string, name: string, code: string): Promise<void>
 }
 
 type Email = { to: string; subject: string; html: string; text: string }
@@ -15,30 +16,86 @@ const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 function verificationEmail(to: string, name: string, code: string): Email {
+  return codeEmail(to, name, code, {
+    subject: `Tu código de EcoEstudiante: ${code}`,
+    intro: 'Tu código de verificación es:',
+    textIntro: 'Tu código de verificación de EcoEstudiante es',
+    ignore: 'Si no creaste una cuenta, ignora este correo.',
+  })
+}
+
+function resetEmail(to: string, name: string, code: string): Email {
+  return codeEmail(to, name, code, {
+    subject: `Tu código para cambiar la contraseña: ${code}`,
+    intro: 'Tu código para cambiar la contraseña es:',
+    textIntro: 'Tu código para cambiar la contraseña de EcoEstudiante es',
+    ignore: 'Si no pediste cambiar tu contraseña, ignora este correo: tu cuenta sigue segura.',
+  })
+}
+
+function codeEmail(
+  to: string,
+  name: string,
+  code: string,
+  copy: { subject: string; intro: string; textIntro: string; ignore: string },
+): Email {
   const first = escapeHtml(name.trim().split(/\s+/)[0] || 'estudiante')
   return {
     to,
-    subject: `Tu código de EcoEstudiante: ${code}`,
-    text: `Hola, ${first}:\n\nTu código de verificación de EcoEstudiante es ${code}.\nVence en 15 minutos.\n\nSi no creaste una cuenta, ignora este correo.`,
+    subject: copy.subject,
+    text: `Hola, ${first}:\n\n${copy.textIntro} ${code}.\nVence en 15 minutos.\n\n${copy.ignore}`,
     html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;color:#1f2a1f">
   <h2 style="color:#2f6b3a">EcoEstudiante</h2>
   <p>Hola, ${first}:</p>
-  <p>Tu código de verificación es:</p>
+  <p>${copy.intro}</p>
   <p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:16px 0">${code}</p>
   <p>Vence en 15 minutos.</p>
-  <p style="color:#667;font-size:13px">Si no creaste una cuenta, ignora este correo.</p>
+  <p style="color:#667;font-size:13px">${copy.ignore}</p>
 </div>`,
   }
 }
 
-/** Elige Resend, SMTP o consola según la configuración disponible. */
+/** "Nombre <correo@x>" → { name, email }; un correo suelto también vale. */
+export function parseSender(from: string): { name?: string; email: string } {
+  const match = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from)
+  if (match) return { ...(match[1] ? { name: match[1] } : {}), email: match[2].trim() }
+  return { email: from.trim() }
+}
+
+/**
+ * Elige Brevo, Resend, SMTP o consola según la configuración disponible. En Render gratuito los puertos SMTP
+ * están bloqueados, así que en producción se usa una API HTTP (Brevo permite enviar desde un Gmail verificado).
+ */
 export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): Mailer {
-  const { resendApiKey, smtp, from } = config.mail
+  const { brevoApiKey, resendApiKey, smtp, from } = config.mail
 
   let send: (email: Email) => Promise<void>
   let mode: Mailer['mode']
 
-  if (resendApiKey) {
+  if (brevoApiKey) {
+    mode = 'brevo'
+    send = async (email) => {
+      const res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': brevoApiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          sender: parseSender(from),
+          to: [{ email: email.to }],
+          subject: email.subject,
+          htmlContent: email.html,
+          textContent: email.text,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      }).catch((error) => {
+        console.error('Brevo no respondió', error)
+        throw mailFailed()
+      })
+      if (!res.ok) {
+        console.error('Brevo respondió', res.status, await res.text().catch(() => ''))
+        throw mailFailed()
+      }
+    }
+  } else if (resendApiKey) {
     mode = 'resend'
     send = async (email) => {
       const res = await fetchImpl('https://api.resend.com/emails', {
@@ -58,6 +115,10 @@ export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): M
       port: smtp.port,
       secure: smtp.port === 465,
       auth: { user: smtp.user, pass: smtp.pass },
+      // Si el puerto está bloqueado (como en Render gratuito), falla rápido en vez de colgar el registro.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     })
     send = async (email) => {
       try {
@@ -78,5 +139,6 @@ export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): M
   return {
     mode,
     sendVerificationCode: (to, name, code) => send(verificationEmail(to, name, code)),
+    sendPasswordResetCode: (to, name, code) => send(resetEmail(to, name, code)),
   }
 }
