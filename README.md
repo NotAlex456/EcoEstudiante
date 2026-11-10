@@ -8,7 +8,7 @@ materiales académicos (libros, apuntes, calculadoras y separatas) y así reutil
 
 ## Probar la app
 
-- **Android:** descarga `EcoEstudiante-2.1.apk` desde la sección **Releases** de este repositorio e instálalo
+- **Android:** descarga `EcoEstudiante-2.2.apk` desde la sección **Releases** de este repositorio e instálalo
   (Android 7.0 o superior; permite "instalar apps desconocidas" cuando el teléfono lo pida).
 - **Navegador:** abre https://ecoestudiante.onrender.com desde la PC o el celular. Es la misma app del APK, salvo los
   avisos push, que solo existen en Android.
