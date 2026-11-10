@@ -15,7 +15,8 @@ async function run(job: BotJob, hub: Hub) {
 
   if (job.kind === 'reply') {
     const c = await prisma.conversation.findUnique({ where: { id: payload.conversationId }, include: { material: true } })
-    if (!c) return
+    // Si el material ya no se ofrece, el bot no responde (diría que sigue disponible).
+    if (!c || (c.material.status !== 'Disponible' && c.material.status !== 'Reservado')) return
     const botId = payload.botId
     if (c.sellerId === botId) {
       const lastHuman = await prisma.message.findFirst({

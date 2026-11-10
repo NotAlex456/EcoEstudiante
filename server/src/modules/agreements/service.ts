@@ -193,6 +193,18 @@ export function agreementService(hub: Hub) {
     return (await broadcast(id)).dto
   }
 
+  /** Acuerdos que otra acción ya canceló (p. ej. borrar el material): se emiten y se avisa a la otra persona. */
+  async function announceCancelled(ids: string[], actorId: string) {
+    for (const id of ids) {
+      const { agreement } = await broadcast(id)
+      await hub.notifier.notify(agreement.buyerId === actorId ? agreement.sellerId : agreement.buyerId, {
+        category: 'acuerdos',
+        link: `#/acuerdo/${id}`,
+        text: `${await nameOf(actorId)} canceló la entrega de “${agreement.material.title}”.`,
+      })
+    }
+  }
+
   async function list(userId: string): Promise<AgreementDto[]> {
     const rows = await prisma.agreement.findMany({
       where: { OR: [{ buyerId: userId }, { sellerId: userId }] },
@@ -202,5 +214,5 @@ export function agreementService(hub: Hub) {
     return rows.map(toAgreementDto)
   }
 
-  return { propose, confirm, cancel, complete, review, list }
+  return { propose, confirm, cancel, complete, review, list, announceCancelled }
 }

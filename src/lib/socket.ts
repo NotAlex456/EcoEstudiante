@@ -9,6 +9,7 @@ import {
   adoptAgreement,
   adoptLiveNotification,
   adoptMessage,
+  loadMessages,
   setCachedMaterialStatus,
   syncAll,
   type AgreementDto,
@@ -22,13 +23,15 @@ let socket: Socket | null = null
 
 export function connectSocket(token: string) {
   disconnectSocket()
-  let connectedBefore = false
   const current = io(API_URL, { auth: { token }, transports: ['websocket', 'polling'] })
   socket = current
 
+  // En cada conexión (la primera y las reconexiones) se vuelve a sincronizar: lo que pasó antes de
+  // entrar a la sala no llega por el socket. Si hay un chat abierto, también se recargan sus mensajes.
   current.on('connect', () => {
-    if (connectedBefore) void syncAll()
-    connectedBefore = true
+    void syncAll()
+    const open = /^#\/chat\/([^/]+)$/.exec(location.hash)
+    if (open) loadMessages(decodeURIComponent(open[1])).catch(() => undefined)
   })
   current.on('message:new', ({ conversationId, message }: { conversationId: string; message: MessageDto }) => {
     adoptMessage(conversationId, message)

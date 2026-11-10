@@ -158,3 +158,33 @@ describe('acuerdos', () => {
     expect(reserved.body.error.code).toBe('MATERIAL_UNAVAILABLE')
   })
 })
+
+describe('material con un acuerdo activo (revisión final)', () => {
+  it('borrar el material cancela el acuerdo, lo emite y avisa al comprador', async () => {
+    const id = (await propose(beto)).body.id
+    await act(ana, id, 'confirm')
+    realtime.events.length = 0
+    const res = await request(app).delete(`/api/materials/${materialId}`).set(auth(ana.token))
+    expect(res.status).toBe(204)
+    expect((await prisma.agreement.findUniqueOrThrow({ where: { id } })).status).toBe('Cancelado')
+    expect(realtime.events).toContainEqual(
+      expect.objectContaining({ userId: beto.user.id, event: 'agreement:updated', payload: { agreement: expect.objectContaining({ id, status: 'Cancelado' }) } }),
+    )
+    const notice = await prisma.notification.findFirst({ where: { userId: beto.user.id, text: { contains: 'canceló' } } })
+    expect(notice?.text).toBe('Ana canceló la entrega de “Calculadora Casio”.')
+  })
+
+  it('no se puede pausar ni marcar entregado mientras hay una entrega en curso', async () => {
+    const id = (await propose(beto)).body.id
+    const status = (s: string) => request(app).patch(`/api/materials/${materialId}/status`).set(auth(ana.token)).send({ status: s })
+    const paused = await status('Pausado')
+    expect(paused.status).toBe(409)
+    expect(paused.body.error.code).toBe('AGREEMENT_ACTIVE')
+    expect((await status('Entregado')).status).toBe(409)
+    await act(ana, id, 'confirm')
+    expect((await status('Entregado')).status).toBe(409)
+    expect(await materialStatus()).toBe('Reservado')
+    await act(ana, id, 'cancel')
+    expect((await status('Pausado')).status).toBe(200)
+  })
+})

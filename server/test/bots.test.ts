@@ -61,6 +61,14 @@ describe('bots activados', () => {
     expect(await runDueJobs(later(20), hub)).toBe(0)
   })
 
+  it('María no responde si su material ya no está disponible', async () => {
+    const conversationId = await openWithMaria()
+    await request(app).post(`/api/conversations/${conversationId}/messages`).set(auth(beto.token)).send({ text: '¿Sigue disponible?' })
+    await prisma.material.update({ where: { id: mariaMaterialId }, data: { status: 'Entregado' } })
+    expect(await runDueJobs(later(10), hub)).toBe(1)
+    expect(await prisma.message.count({ where: { conversationId, senderId: mariaId } })).toBe(0)
+  })
+
   it('María confirma un acuerdo', async () => {
     const res = await request(app)
       .post('/api/agreements')

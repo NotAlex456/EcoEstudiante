@@ -210,13 +210,13 @@ export async function loadConversations() {
   adoptConversations(await api<ConversationDto[]>('GET', '/conversations'), true)
 }
 
-/** Reemplaza los mensajes de una conversación por los del servidor (los 50 últimos). */
+/** Trae los mensajes del servidor (los 50 últimos) y los une a los de la caché, sin perder los que llegaron mientras tanto. */
 export async function loadMessages(conversationId: string) {
   const messages = await api<MessageDto[]>('GET', `/conversations/${encodeURIComponent(conversationId)}/messages`)
   if (!getState().conversations.some((c) => c.id === conversationId)) await loadConversations()
   updateCache((s) => ({
     ...s,
-    conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, messages: messages.map(fromMessageDto) } : c)),
+    conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, messages: mergeMessages(c.messages, messages.map(fromMessageDto)) } : c)),
   }))
 }
 

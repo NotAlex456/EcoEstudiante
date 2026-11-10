@@ -6,6 +6,7 @@ import type { ImageStorage } from '../../integrations/images'
 import { currentUserId, optionalAuth, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
 import { listQuerySchema, materialSchema, statusSchema } from './schemas'
+import { agreementService } from '../agreements/service'
 import * as materials from './service'
 
 export function materialRoutes(hub: Hub, images: ImageStorage) {
@@ -37,7 +38,8 @@ export function materialRoutes(hub: Hub, images: ImageStorage) {
   })
 
   router.delete('/:id', auth, async (req, res) => {
-    await materials.remove(String(req.params.id), currentUserId(req), images)
+    const cancelled = await materials.remove(String(req.params.id), currentUserId(req), images)
+    await agreementService(hub).announceCancelled(cancelled, currentUserId(req))
     // Si quedó como Eliminado (tenía historial), avisa a quienes conversaban; si se borró, no hay a quién.
     await materials.emitMaterialUpdated(hub.realtime, String(req.params.id), 'Eliminado')
     res.status(204).end()

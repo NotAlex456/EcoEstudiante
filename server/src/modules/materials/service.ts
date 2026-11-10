@@ -173,15 +173,26 @@ export async function setStatus(id: string, userId: string, status: 'Disponible'
   const current = await ownedMaterial(id, userId)
   if (!ALLOWED[current.status]?.includes(status))
     throw new AppError(409, 'INVALID_TRANSITION', 'No se puede cambiar la publicación a ese estado.')
-  return toMaterialDto(await prisma.material.update({ where: { id }, data: { status }, include: materialInclude }))
+  // Con una entrega en curso, el acuerdo manda: primero hay que cancelarla o completarla.
+  const active = await prisma.agreement.count({ where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } } })
+  if (active)
+    throw new AppError(409, 'AGREEMENT_ACTIVE', 'Tienes una entrega en curso para este material. Cancélala o complétala primero.')
+  // Solo si nadie lo cambió entretanto (p. ej. una confirmación que llegó a la vez).
+  const changed = await prisma.material.updateMany({ where: { id, status: current.status }, data: { status } })
+  if (!changed.count) throw new AppError(409, 'INVALID_TRANSITION', 'La publicación cambió de estado. Actualiza la pantalla.')
+  return toMaterialDto(await prisma.material.findUniqueOrThrow({ where: { id }, include: materialInclude }))
 }
 
 /**
  * Sin chats ni acuerdos: se borra de verdad. Con historial: pasa a Eliminado (para no romper
  * chats ni reseñas) y se cancelan sus acuerdos activos. En ambos casos se borran sus fotos.
  */
-export async function remove(id: string, userId: string, images: ImageStorage) {
+export async function remove(id: string, userId: string, images: ImageStorage): Promise<string[]> {
   const current = await ownedMaterial(id, userId)
+  const active = await prisma.agreement.findMany({
+    where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } },
+    select: { id: true },
+  })
   const [conversations, agreements] = await Promise.all([
     prisma.conversation.count({ where: { materialId: id } }),
     prisma.agreement.count({ where: { materialId: id } }),
@@ -199,6 +210,8 @@ export async function remove(id: string, userId: string, images: ImageStorage) {
     await prisma.material.delete({ where: { id } })
   }
   await removeUnused(current.images.map((i) => i.url), images)
+  // Acuerdos que se cancelaron: la ruta los avisa a la otra persona.
+  return active.map((a) => a.id)
 }
 
 export async function listMine(userId: string): Promise<MaterialDto[]> {
