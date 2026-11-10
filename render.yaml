@@ -5,6 +5,8 @@ services:
     name: ecoestudiante-api
     runtime: node
     plan: free
+    # Misma región que la base de datos de Neon (AWS US East 2, Ohio).
+    region: ohio
     rootDir: server
     # --include=dev: NODE_ENV=production omitiría tsup, que hace falta para compilar.
     buildCommand: npm ci --include=dev && npx prisma generate && npm run build
