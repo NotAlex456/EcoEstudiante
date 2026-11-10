@@ -3,7 +3,9 @@ import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Config } from './config'
+import { prisma } from './db'
 import { errorHandler, notFound } from './errors'
+import { statusPage } from './status-page'
 import { createImageStorage, type ImageStorage } from './integrations/images'
 import { createMailer, type Mailer } from './integrations/mail'
 import { createPushSender, type PushSender } from './integrations/push'
@@ -21,6 +23,15 @@ import { savedRoutes, savedSearchRoutes } from './modules/saved/routes'
 import { uploadRoutes } from './modules/uploads/routes'
 import { userRoutes } from './modules/users/routes'
 
+/** Versión del servidor (de package.json), para la página de estado. */
+const VERSION: string = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')).version
+  } catch {
+    return 'desconocida'
+  }
+})()
+
 export type AppDeps = { mailer: Mailer; images: ImageStorage; realtime: Realtime; notifier: Notifier; push: PushSender }
 
 export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
@@ -34,8 +45,20 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use(cors({ origin: config.corsOrigins }))
   app.use(express.json({ limit: '100kb' }))
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true })
+  // Siempre 200 (aunque la base falle) para no confundir el chequeo de salud de Render; el detalle va en el cuerpo.
+  app.get('/api/health', async (_req, res) => {
+    const database = await Promise.race([
+      prisma.$queryRaw`SELECT 1`.then(() => 'ok' as const),
+      new Promise<'error'>((resolve) => setTimeout(() => resolve('error'), 3000).unref()),
+    ]).catch(() => 'error' as const)
+    res.json({ ok: true, database, uptime: Math.round(process.uptime()), version: VERSION, time: new Date().toISOString() })
+  })
+
+  // Página principal: el estado del servidor en vivo y el acceso al panel de administración.
+  app.get('/', (_req, res) => {
+    res.setHeader('X-Frame-Options', 'DENY')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.type('html').send(statusPage())
   })
 
   app.use('/api/auth', authRoutes({ config, mailer, notifier, realtime }))

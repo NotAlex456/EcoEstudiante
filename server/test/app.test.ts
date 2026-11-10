@@ -9,7 +9,7 @@ describe('app', () => {
   it('GET /api/health responde ok', async () => {
     const res = await request(app).get('/api/health')
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ ok: true })
+    expect(res.body.ok).toBe(true)
   })
 
   it('ruta inexistente responde 404 NOT_FOUND en español', async () => {
@@ -87,5 +87,25 @@ describe('panel de administración (/admin)', () => {
   it('sin la carpeta compilada no monta /admin', async () => {
     const app = makeApp({ adminDir: '/no/existe' })
     expect((await request(app).get('/admin/')).status).toBe(404)
+  })
+})
+
+describe('página de estado del servidor', () => {
+  it('/api/health informa base de datos, tiempo activo, versión y hora', async () => {
+    const res = await request(makeApp()).get('/api/health')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ ok: true, database: 'ok', version: expect.stringMatching(/^\d+\.\d+\.\d+/) })
+    expect(res.body.uptime).toEqual(expect.any(Number))
+    expect(Number.isNaN(Date.parse(res.body.time))).toBe(false)
+  })
+
+  it('la raíz muestra la página de estado con el botón al panel', async () => {
+    const res = await request(makeApp()).get('/')
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('text/html')
+    expect(res.text).toContain('href="/admin/"')
+    expect(res.text).toContain('/api/health')
+    expect(res.text).toContain('Ir al panel de administración')
+    expect(res.headers['x-frame-options']).toBe('DENY')
   })
 })
