@@ -5,6 +5,7 @@ import { prisma } from '../../db'
 import { toCondition, toMode } from '../../enums'
 import { AppError } from '../../errors'
 import type { ImageStorage } from '../../integrations/images'
+import type { Notifier } from '../../notify/notify'
 import { materialInclude, toMaterialDto, toMaterialDtos, type MaterialDto } from './dto'
 import type { ListQuery, MaterialInput } from './schemas'
 
@@ -97,7 +98,7 @@ export async function getVisible(id: string, viewerId?: string): Promise<Materia
   return toMaterialDto(material)
 }
 
-export async function create(ownerId: string, input: MaterialInput, images: ImageStorage): Promise<MaterialDto> {
+export async function create(ownerId: string, input: MaterialInput, images: ImageStorage, notifier: Notifier): Promise<MaterialDto> {
   await checkImages(ownerId, input.images, images)
   const material = await prisma.material.create({
     data: {
@@ -107,24 +108,24 @@ export async function create(ownerId: string, input: MaterialInput, images: Imag
     },
     include: materialInclude,
   })
-  await notifySavedSearches(material.id, ownerId, input)
+  await notifySavedSearches(material.id, ownerId, input, notifier)
   return toMaterialDto(material)
 }
 
 /** Avisa a otros usuarios cuyas búsquedas guardadas coinciden con el material nuevo. */
-async function notifySavedSearches(materialId: string, ownerId: string, input: MaterialInput) {
+async function notifySavedSearches(materialId: string, ownerId: string, input: MaterialInput, notifier: Notifier) {
   const searches = await prisma.savedSearch.findMany({ where: { userId: { not: ownerId } } })
   const matching = searches.filter((s) => matchesSearch(input, s))
   const notified = new Set<string>()
-  const data = matching
-    .filter((s) => !notified.has(s.userId) && notified.add(s.userId))
-    .map((s) => ({
-      userId: s.userId,
-      category: 'busquedas' as const,
+  for (const s of matching) {
+    if (notified.has(s.userId)) continue
+    notified.add(s.userId)
+    await notifier.notify(s.userId, {
+      category: 'busquedas',
       link: `#/material/${materialId}`,
       text: `Nuevo material para tu búsqueda “${s.query || s.category}”: ${input.title}`,
-    }))
-  if (data.length) await prisma.notification.createMany({ data })
+    })
+  }
 }
 
 const forbidden = () => new AppError(403, 'FORBIDDEN', 'Solo quien publicó puede modificar este material.')

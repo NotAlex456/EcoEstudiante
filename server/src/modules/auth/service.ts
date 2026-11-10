@@ -5,11 +5,12 @@ import type { Config } from '../../config'
 import { prisma } from '../../db'
 import { AppError } from '../../errors'
 import type { Mailer } from '../../integrations/mail'
+import type { Notifier } from '../../notify/notify'
 import { toMe, type MeDto } from '../users/dto'
 import type { LoginInput, RegisterInput } from './schemas'
 import { signToken } from './tokens'
 
-type Ctx = { mailer: Mailer; config: Config }
+type Ctx = { mailer: Mailer; config: Config; notifier: Notifier }
 
 const CODE_TTL_MS = 15 * 60_000
 const RESEND_COOLDOWN_MS = 60_000
@@ -81,7 +82,7 @@ export async function resendCode(userId: string, ctx: Ctx) {
  */
 export async function verify(
   input: { userId: string; code: string; password: string },
-  { config }: Ctx,
+  { config, notifier }: Ctx,
 ): Promise<{ token: string; user: MeDto }> {
   const user = await prisma.user.findUnique({ where: { id: input.userId } })
   const record = user && (await prisma.emailCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }))
@@ -104,13 +105,10 @@ export async function verify(
     prisma.emailCode.deleteMany({ where: { userId: user.id } }),
   ])
   if (activated.count) {
-    await prisma.notification.create({
-      data: {
-        userId: user.id,
-        category: 'cuenta',
-        link: '#/cuenta',
-        text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
-      },
+    await notifier.notify(user.id, {
+      category: 'cuenta',
+      link: '#/cuenta',
+      text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
     })
   }
   const verified = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })

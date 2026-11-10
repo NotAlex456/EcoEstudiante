@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Config } from '../../config'
+import type { Notifier } from '../../notify/notify'
 import { AppError } from '../../errors'
 import type { ImageStorage } from '../../integrations/images'
 import { currentUserId, optionalAuth, requireAuth } from '../../middleware/auth'
@@ -7,7 +8,7 @@ import { body } from '../../validate'
 import { listQuerySchema, materialSchema, statusSchema } from './schemas'
 import * as materials from './service'
 
-export function materialRoutes(config: Config, images: ImageStorage) {
+export function materialRoutes(config: Config, images: ImageStorage, notifier: Notifier) {
   const router = Router()
   const auth = requireAuth(config)
 
@@ -22,7 +23,7 @@ export function materialRoutes(config: Config, images: ImageStorage) {
   })
 
   router.post('/', auth, body(materialSchema), async (req, res) => {
-    res.status(201).json(await materials.create(currentUserId(req), req.body, images))
+    res.status(201).json(await materials.create(currentUserId(req), req.body, images, notifier))
   })
 
   router.patch('/:id', auth, body(materialSchema), async (req, res) => {

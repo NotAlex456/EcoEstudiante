@@ -4,6 +4,7 @@ import path from 'node:path'
 import request from 'supertest'
 import { createApp, type AppDeps } from '../src/app'
 import type { Config } from '../src/config'
+import type { Realtime, ServerEvent } from '../src/realtime/socket'
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -49,4 +50,19 @@ export async function registerAndVerify(app: Express, overrides: Partial<typeof 
   const ver = await request(app).post('/api/auth/verify').send({ userId: reg.body.userId, code: reg.body.devCode, password: input.password })
   if (ver.status !== 200) throw new Error(`verify ${ver.status}: ${JSON.stringify(ver.body)}`)
   return ver.body as { token: string; user: { id: string; name: string; email: string; career: string; cycle: number } }
+}
+
+/** Realtime de mentira: guarda lo que se emitiría y permite marcar usuarios conectados. */
+export function fakeRealtime() {
+  const events: { userId: string; event: string; payload: unknown }[] = []
+  const online = new Set<string>()
+  return {
+    events,
+    online,
+    emitToUser(userId: string, event: ServerEvent, payload: unknown) {
+      events.push({ userId, event, payload })
+    },
+    isOnline: async (userId: string) => online.has(userId),
+    close: async () => {},
+  } satisfies Realtime & { events: unknown[]; online: Set<string> }
 }
