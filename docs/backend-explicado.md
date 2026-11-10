@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** etapas 1 a 4 construidas: servidor, base de datos, registro con verificación de correo, perfiles, publicaciones con fotos, búsqueda con filtros, guardados, alertas, reportes, chat en tiempo real, acuerdos de entrega, reseñas, notificaciones dentro de la app y estudiantes simulados en el servidor. Falta la etapa 5 (push con la app cerrada y despliegue, §10). Este documento se actualiza al terminar cada una.
+> **Estado:** las 5 etapas están construidas y el servidor está publicado en https://ecoestudiante-api.onrender.com. Funciona el registro con correo real, las publicaciones con fotos en la nube, el chat en tiempo real, los acuerdos, las reseñas, los estudiantes simulados y los avisos push con la app cerrada. Se probó en un celular real con el APK 2.0.
 
 ## Índice
 
@@ -64,7 +64,7 @@ flowchart TB
   end
   DB[(PostgreSQL)]
   C[Cloudinary<br/>fotos]
-  M[Resend / Gmail<br/>correos]
+  M[Brevo<br/>correos]
   F[Firebase FCM<br/>push]
 
   A & W -- HTTPS + JSON --> E
@@ -102,7 +102,7 @@ usuarios del proyecto es más que suficiente y mucho más simple de desplegar qu
 | **JWT** | Sesiones | Token firmado que la app envía en cada petición. El servidor no necesita guardar sesiones |
 | **Socket.IO** | Tiempo real | WebSockets con reconexión automática y "salas" por usuario |
 | **Cloudinary** | Almacenar fotos | Plan gratuito. El hosting gratuito borra su disco al reiniciar, así que las fotos no pueden vivir ahí |
-| **Resend / Gmail SMTP** | Enviar correos | Plan gratuito. Gmail sirve de respaldo si Resend no permite el dominio de destino |
+| **Brevo** (API HTTP) | Enviar los códigos de verificación | Plan gratuito (300 correos al día) y envía desde un Gmail verificado sin dominio propio. Se usa una API HTTP porque Render gratuito bloquea el correo por SMTP; en local también sirve Gmail SMTP |
 | **Firebase Cloud Messaging** | Notificaciones push | Es el servicio oficial (y gratuito) para push en Android |
 | **Vitest + Supertest** | Pruebas automáticas | Prueban la API completa con peticiones HTTP reales contra una base de prueba |
 | **embedded-postgres** | PostgreSQL local | Un PostgreSQL real instalado como paquete de npm. No requiere Docker ni instalador |
@@ -465,9 +465,27 @@ flowchart TD
 
 Así el usuario **nunca recibe el mismo aviso dos veces**, y ningún módulo necesita saber si existe el WebSocket o el push.
 
-En las etapas 3 y 4 está construida la parte del WebSocket: el aviso se guarda y, si la categoría está activa, llega en
-vivo con la ventana emergente. La rama del push (app cerrada) se agrega en la etapa 5. Las notificaciones que la app
-carga al abrirse se muestran en la lista, sin ventana emergente, para no repetir avisos ya vistos.
+**¿Cómo sabe el servidor si "tiene la app abierta"?** Por la conexión en vivo (Socket.IO). En Android, la app
+**cierra esa conexión al pasar a segundo plano** y la vuelve a abrir al regresar. Así, "no conectado" significa siempre
+"mandar push", sin ventanas en las que el servidor crea que sigues mirando la pantalla.
+
+**El push, paso a paso:**
+
+1. Al iniciar sesión, la app pide permiso de notificaciones y obtiene de Firebase un **token** que identifica a ese
+   celular. Lo registra con `POST /devices` (tabla `DeviceToken`). Si otra cuenta registra el mismo celular, el token
+   pasa a ella; al cerrar sesión se borra.
+2. Cuando `notify()` decide mandar push, llama a **Firebase Cloud Messaging** con la cuenta de servicio del proyecto
+   y le pide entregar el aviso a todos los tokens del usuario.
+3. Android muestra la notificación aunque la app esté cerrada. Al tocarla, la app abre el `link` del aviso (el chat, el
+   acuerdo…).
+4. Si Firebase dice que un token ya no existe (por ejemplo, porque desinstalaron la app), se borra.
+
+Un fallo de Firebase **nunca rompe** la acción que lo causó: el mensaje se envía igual y el error queda en el registro.
+
+**Preferencias:** push sí o no, horario silencioso (de 22:00 a 06:59, hora de Lima) y categorías se guardan en el
+servidor (`User.notificationPrefs`), porque con la app cerrada solo el servidor puede aplicarlas. Ventana emergente,
+sonido, vibración y volumen siguen en el celular. Las notificaciones que la app carga al abrirse se muestran en la
+lista, sin ventana emergente, para no repetir avisos ya vistos.
 
 ### 7.6 Estudiantes simulados (bots)
 
@@ -550,7 +568,7 @@ Se escribe primero la prueba y luego el código que la hace pasar (**TDD**).
 
 Las etapas 3 y 4 se construyeron juntas: casi todas las publicaciones de la demo son de bots, y sin ellos escribirles
 no habría tenido respuesta.
-| **5. Push y despliegue** | Firebase, preferencias, Render + Neon, APK 2.0 | La app funciona desde cualquier lugar y avisa con la app cerrada |
+| **5. Push y despliegue** ✅ | Firebase, preferencias, Render + Neon, APK 2.0 | La app funciona desde cualquier lugar y avisa con la app cerrada |
 
 Cada etapa termina con sus pruebas pasando y la app funcionando de punta a punta.
 
@@ -575,11 +593,20 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 
 ### En internet (gratis)
 
-- **Neon**: base de datos PostgreSQL.
-- **Render**: servidor conectado al repositorio de GitHub. En cada despliegue aplica las migraciones pendientes
-  (`prisma migrate deploy`).
-- Las claves se cargan como **variables de entorno** en Render.
-- El **APK 2.0** se compila apuntando a la URL de Render.
+| Servicio | Para qué | Dónde se configura |
+|---|---|---|
+| **Render** | El servidor (https://ecoestudiante-api.onrender.com), en Ohio | `render.yaml` (Blueprint) + variables de entorno en el panel |
+| **Neon** | PostgreSQL 18, en Ohio (AWS US East 2) | `DATABASE_URL` (conexión directa, con `sslmode=require`) |
+| **Cloudinary** | Las fotos de las publicaciones | `CLOUDINARY_URL` |
+| **Brevo** | Los correos con el código de verificación | `BREVO_API_KEY` + `MAIL_FROM` (remitente verificado en Brevo) |
+| **Firebase** | El push de Android | `FIREBASE_SERVICE_ACCOUNT` (servidor) y `google-services.json` (APK) |
+
+- **Cada despliegue** compila el servidor y, al arrancar, ejecuta `npm run start:prod`: aplica las migraciones
+  pendientes (`prisma migrate deploy`), carga los datos de ejemplo si faltan (el seed es idempotente) y arranca.
+- **Para actualizar:** basta con subir cambios a la rama conectada en GitHub; Render vuelve a desplegar solo.
+- **Las claves** solo están en el panel de Render y en archivos locales fuera de git (`server/.env`,
+  `server/.env.render`, la clave de Firebase y `google-services.json`).
+- **El APK 2.0** se compila con `VITE_API_URL` apuntando a Render (archivo `.env.production`, que no es secreto).
 
 ---
 
@@ -610,6 +637,12 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 - **Un solo proceso:** para muchos usuarios habría que separar el worker y usar un adaptador de Socket.IO compartido
   (por ejemplo, Redis).
 - **Sin conexión, solo lectura:** publicar o chatear requiere internet.
+- **Correos que pueden ir a spam:** se envían desde un Gmail sin dominio propio, así que Gmail y Outlook no pueden
+  firmarlos (DKIM). Con un dominio propio verificado en Brevo se resolvería.
+- **Sin push en la web:** la versión de navegador (PWA) solo avisa con la página abierta. El push web necesitaría un
+  *service worker* y claves VAPID propias.
+- **Render bloquea el correo SMTP en el plan gratuito:** por eso se usa la API HTTP de Brevo.
+- **Neon gratuito:** 0,5 GB de datos y la base también "duerme"; la primera consulta tras un rato tarda un poco más.
 
 ---
 
@@ -646,6 +679,21 @@ producción se aplican solas en cada despliegue, así todas las bases quedan con
 **¿Cómo pruebas que las reglas funcionan?**
 Con pruebas automáticas que **intentan romper** cada regla: editar un material ajeno, reseñar dos veces, confirmar un
 acuerdo siendo el comprador… En cada caso se espera el error correcto.
+
+**¿Cómo llega un aviso con la app cerrada?**
+Cuando la app está cerrada no hay conexión en vivo, así que el servidor le pide a **Firebase Cloud Messaging** que
+entregue el aviso al celular, identificado por el token que la app registró al iniciar sesión. Android lo muestra aunque
+la app no esté abierta, y al tocarlo se abre la pantalla correspondiente. Si la app está abierta, en cambio, el aviso
+llega por el WebSocket como ventana emergente, y nunca por los dos caminos.
+
+**¿Dónde están las claves y contraseñas?**
+En ningún archivo de git. En producción están como variables de entorno en Render; en la laptop, en `server/.env` y
+`server/.env.render`, que git ignora. La clave de Firebase y `google-services.json` también están fuera del
+repositorio. Si una clave se filtra, se revoca en su servicio y se genera otra sin tocar el código.
+
+**¿Por qué Brevo y no Gmail directamente?**
+Render gratuito bloquea las conexiones salientes a los puertos de correo (SMTP). Brevo recibe el correo por HTTPS,
+que no está bloqueado, y lo envía desde el Gmail verificado del proyecto.
 
 **¿Qué pasa si se cae el servidor mientras un bot tenía algo pendiente?**
 Los trabajos de los bots están guardados en la tabla `BotJob`. Cuando el servidor vuelve, el worker encuentra los

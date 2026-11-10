@@ -436,6 +436,14 @@ Cada etapa termina con pruebas pasando y la app funcionando de punta a punta par
    confirmación del bot) no generan un aviso de mensaje aparte.
 5. **Push y despliegue:** Firebase, `DeviceToken`, preferencias en el servidor, ajustes, Neon y Render, APK 2.0 y README.
 
+   Hecha y publicada en https://ecoestudiante-api.onrender.com. Desviaciones respecto de este spec:
+   - El health check está en `/api/health`, igual que en local.
+   - Push solo en Android; la PWA avisa solo con la página abierta.
+   - En Android la app cierra el socket al pasar a segundo plano, para que "no conectado" signifique "mandar push".
+   - El arranque de producción (`start:prod`) también corre el seed, que es idempotente.
+   - Correo por la API HTTP de **Brevo** (`BREVO_API_KEY`), porque Render gratuito bloquea los puertos SMTP. Gmail
+     SMTP queda para desarrollo local, con tiempos límite para no colgar el registro.
+
 ## 10. Entregable de documentación
 
 Al terminar el diseño se escribe, además de este spec, un **documento explicativo para la sustentación**

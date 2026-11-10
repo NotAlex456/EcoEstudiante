@@ -67,10 +67,29 @@ Los servicios externos son opcionales: sin ellos el servidor funciona igual en m
 
 | Servicio | Variables | Sin configurar |
 |---|---|---|
-| Correo | `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
+| Correo | `BREVO_API_KEY` (recomendado en Render), `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (solo local) | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
 | Fotos | `CLOUDINARY_URL` (en tu panel de Cloudinary: *Settings → API Keys → API environment variable*, con la forma `cloudinary://<key>:<secret>@<cloud>`) | Se guardan en `server/uploads/` y se sirven en `/uploads/…` |
 | Push | `FIREBASE_SERVICE_ACCOUNT` | No se envían notificaciones push (etapa 5) |
 | Estudiantes simulados | `BOTS_ENABLED=true` | Los bots no responden, no confirman entregas ni se interesan en lo que publicas |
+
+## Despliegue en Render (gratis)
+
+El servidor está publicado en https://ecoestudiante-api.onrender.com. Para desplegarlo de nuevo, o en otra cuenta:
+
+1. Crea los servicios y anota sus claves en `server/.env.render`, que está fuera de git:
+   - **Neon:** base de datos. Usa la conexión **directa**, sin `-pooler`.
+   - **Cloudinary:** fotos.
+   - **Brevo:** correo. Verifica el remitente y desactiva el bloqueo de IP para claves API, porque Render no tiene IP fija.
+   - **Firebase:** push. La cuenta de servicio va en base64.
+2. En Render, ve a **New › Blueprint**, elige este repositorio y la rama. Render lee `render.yaml` (raíz del repositorio)
+   y crea `ecoestudiante-api` en Ohio.
+3. Carga las variables marcadas como secretas: `DATABASE_URL`, `JWT_SECRET`, `CLOUDINARY_URL`, `BREVO_API_KEY`,
+   `MAIL_FROM` (sin comillas) y `FIREBASE_SERVICE_ACCOUNT`.
+4. El primer despliegue aplica las migraciones y carga los datos de ejemplo (`npm run start:prod`).
+   Compruébalo en `https://ecoestudiante-api.onrender.com/api/health`.
+
+> Render gratuito **bloquea los puertos SMTP**: en producción el correo debe ir por `BREVO_API_KEY` (o `RESEND_API_KEY`
+> con dominio propio). Gmail SMTP solo sirve en local.
 
 ### Ver los bots en acción
 
