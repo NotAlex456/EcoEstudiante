@@ -194,13 +194,20 @@ export function agreementService(hub: Hub) {
   }
 
   /** Acuerdos que otra acción ya canceló (p. ej. borrar el material): se emiten y se avisa a la otra persona. */
-  async function announceCancelled(ids: string[], actorId: string) {
+  /**
+   * Acuerdos que otra acción ya canceló: se emiten y se avisa. Si lo hizo el dueño (borrar), avisa a la otra
+   * persona; si fue la moderación, avisa al comprador (el vendedor ya recibe el aviso de la moderación).
+   */
+  async function announceCancelled(ids: string[], actorId: string, opts: { byModeration?: boolean } = {}) {
     for (const id of ids) {
       const { agreement } = await broadcast(id)
+      const title = agreement.material.title
       await hub.notifier.notify(agreement.buyerId === actorId ? agreement.sellerId : agreement.buyerId, {
         category: 'acuerdos',
         link: `#/acuerdo/${id}`,
-        text: `${await nameOf(actorId)} canceló la entrega de “${agreement.material.title}”.`,
+        text: opts.byModeration
+          ? `La entrega de “${title}” se canceló porque un administrador ocultó la publicación.`
+          : `${await nameOf(actorId)} canceló la entrega de “${title}”.`,
       })
     }
   }

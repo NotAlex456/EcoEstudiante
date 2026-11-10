@@ -34,7 +34,7 @@ export async function updateMe(userId: string, input: UpdateMeInput): Promise<Me
 
 export async function getPublicUser(id: string): Promise<PublicUserDto> {
   const user = await prisma.user.findUnique({ where: { id } })
-  if (!user?.verified) throw userNotFound()
+  if (!user?.verified || user.blockedAt) throw userNotFound()
   const [reviews, materials] = await Promise.all([
     prisma.review.findMany({ where: { targetId: id }, orderBy: { createdAt: 'desc' } }),
     prisma.material.findMany({ where: { ownerId: id, status: 'Disponible' }, include: materialInclude, orderBy: { createdAt: 'desc' } }),

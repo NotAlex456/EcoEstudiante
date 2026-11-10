@@ -19,6 +19,8 @@ export type MaterialDto = {
   description: string
   images: string[]
   status: MaterialStatus
+  /** Oculta por un administrador (el dueño no puede reactivarla ni editarla). */
+  moderated: boolean
   createdAt: string
   owner: OwnerDto
 }
@@ -58,6 +60,7 @@ export async function toMaterialDtos(materials: MaterialWithRelations[]): Promis
     description: m.description,
     images: m.images.map((i) => i.url),
     status: m.status,
+    moderated: Boolean(m.moderatedAt),
     createdAt: m.createdAt.toISOString(),
     owner: {
       id: m.owner.id,

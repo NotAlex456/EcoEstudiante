@@ -12,7 +12,10 @@ export async function listSaved(userId: string): Promise<MaterialDto[]> {
     // Pausados ajenos no se muestran (igual que en GET /materials/:id).
     where: {
       userId,
-      material: { OR: [{ status: { notIn: ['Pausado', 'Eliminado'] } }, { status: 'Pausado', ownerId: userId }] },
+      material: {
+        OR: [{ status: { notIn: ['Pausado', 'Eliminado'] } }, { status: 'Pausado', ownerId: userId }],
+        owner: { blockedAt: null },
+      },
     },
     include: { material: { include: materialInclude } },
     orderBy: { createdAt: 'desc' },

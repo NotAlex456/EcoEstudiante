@@ -64,7 +64,8 @@ async function categoriesWhere(test: (folded: string) => boolean) {
 }
 
 export async function list(query: ListQuery): Promise<{ items: MaterialDto[]; page: number; hasMore: boolean }> {
-  const and: Prisma.MaterialWhereInput[] = [{ status: { in: ['Disponible', 'Reservado'] } }]
+  // Las publicaciones de cuentas bloqueadas no se muestran mientras dure el bloqueo.
+  const and: Prisma.MaterialWhereInput[] = [{ status: { in: ['Disponible', 'Reservado'] } }, { owner: { blockedAt: null } }]
   if (query.q) {
     const term = foldText(query.q)
     const categories = await categoriesWhere((c) => c.includes(term))
@@ -101,6 +102,7 @@ export async function getVisible(id: string, viewerId?: string): Promise<Materia
   const material = await prisma.material.findUnique({ where: { id }, include: materialInclude })
   if (!material) throw materialNotFound()
   const isOwner = viewerId === material.ownerId
+  if (material.owner.blockedAt && !isOwner) throw materialNotFound()
   if (material.status === 'Pausado' && !isOwner) throw materialNotFound()
   if (material.status === 'Eliminado' && !isOwner) {
     const participant =
@@ -152,8 +154,12 @@ async function ownedMaterial(id: string, userId: string) {
   return material
 }
 
+const moderated = () =>
+  new AppError(409, 'MODERATED', 'Un administrador ocultó esta publicación. Solo puedes eliminarla.')
+
 export async function update(id: string, userId: string, input: MaterialInput, images: ImageStorage): Promise<MaterialDto> {
   const current = await ownedMaterial(id, userId)
+  if (current.moderatedAt) throw moderated()
   const previous = current.images.map((i) => i.url)
   await checkImages(userId, input.images, images, previous)
   const material = await prisma.$transaction(async (tx) => {
@@ -180,6 +186,7 @@ const ALLOWED: Record<string, string[]> = {
 
 export async function setStatus(id: string, userId: string, status: 'Disponible' | 'Pausado' | 'Entregado') {
   const current = await ownedMaterial(id, userId)
+  if (current.moderatedAt) throw moderated()
   if (!ALLOWED[current.status]?.includes(status))
     throw new AppError(409, 'INVALID_TRANSITION', 'No se puede cambiar la publicación a ese estado.')
   // Con una entrega en curso, el acuerdo manda: primero hay que cancelarla o completarla.
@@ -197,7 +204,18 @@ export async function setStatus(id: string, userId: string, status: 'Disponible'
  * chats ni reseñas) y se cancelan sus acuerdos activos. En ambos casos se borran sus fotos.
  */
 export async function remove(id: string, userId: string, images: ImageStorage): Promise<string[]> {
-  const current = await ownedMaterial(id, userId)
+  return removeMaterial(await ownedMaterial(id, userId), images)
+}
+
+/** Lo mismo, para un administrador: no exige ser el dueño. */
+export async function removeAsAdmin(id: string, images: ImageStorage): Promise<string[]> {
+  const material = await prisma.material.findUnique({ where: { id }, include: { images: true } })
+  if (!material || material.status === 'Eliminado') throw materialNotFound()
+  return removeMaterial(material, images)
+}
+
+async function removeMaterial(current: { id: string; images: { url: string }[] }, images: ImageStorage): Promise<string[]> {
+  const id = current.id
   const active = await prisma.agreement.findMany({
     where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } },
     select: { id: true },
@@ -250,7 +268,7 @@ export async function suggestions(): Promise<{ categories: { name: string; count
   const [categories, courses] = await Promise.all([
     prisma.material.groupBy({
       by: ['category'],
-      where: { status: 'Disponible' },
+      where: { status: 'Disponible', owner: { blockedAt: null } },
       _count: { _all: true },
       orderBy: [{ _count: { category: 'desc' } }, { category: 'asc' }],
       take: 30,

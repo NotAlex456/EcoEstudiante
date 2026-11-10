@@ -8,6 +8,7 @@ import { createPushSender, type PushSender } from './integrations/push'
 import { createNotifier, type Notifier } from './notify/notify'
 import { nullRealtime, type Realtime } from './realtime/socket'
 import { authRoutes } from './modules/auth/routes'
+import { adminRoutes } from './modules/admin/routes'
 import { agreementRoutes } from './modules/agreements/routes'
 import { deviceRoutes } from './modules/devices/routes'
 import { conversationRoutes } from './modules/conversations/routes'
@@ -46,6 +47,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use('/api/conversations', conversationRoutes(hub))
   app.use('/api/agreements', agreementRoutes(hub))
   app.use('/api/devices', deviceRoutes(hub, push))
+  app.use('/api/admin', adminRoutes(hub, images))
 
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {
