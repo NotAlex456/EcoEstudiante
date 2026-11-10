@@ -169,7 +169,7 @@ describe('auth', () => {
 
   it('envía el correo con el código y no expone devCode', async () => {
     const sent: string[][] = []
-    const mailer: Mailer = { mode: 'smtp', sendVerificationCode: async (...args) => void sent.push(args) }
+    const mailer: Mailer = { mode: 'smtp', sendVerificationCode: async (...args) => void sent.push(args), sendPasswordResetCode: async () => {} }
     const withMailer = makeApp({}, { mailer })
     const reg = await request(withMailer).post('/api/auth/register').send(valid)
     expect(reg.body.devCode).toBeUndefined()

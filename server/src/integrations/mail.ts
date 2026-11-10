@@ -5,6 +5,7 @@ import { AppError } from '../errors'
 export type Mailer = {
   mode: 'brevo' | 'resend' | 'smtp' | 'console'
   sendVerificationCode(to: string, name: string, code: string): Promise<void>
+  sendPasswordResetCode(to: string, name: string, code: string): Promise<void>
 }
 
 type Email = { to: string; subject: string; html: string; text: string }
@@ -15,18 +16,41 @@ const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 function verificationEmail(to: string, name: string, code: string): Email {
+  return codeEmail(to, name, code, {
+    subject: `Tu código de EcoEstudiante: ${code}`,
+    intro: 'Tu código de verificación es:',
+    textIntro: 'Tu código de verificación de EcoEstudiante es',
+    ignore: 'Si no creaste una cuenta, ignora este correo.',
+  })
+}
+
+function resetEmail(to: string, name: string, code: string): Email {
+  return codeEmail(to, name, code, {
+    subject: `Tu código para cambiar la contraseña: ${code}`,
+    intro: 'Tu código para cambiar la contraseña es:',
+    textIntro: 'Tu código para cambiar la contraseña de EcoEstudiante es',
+    ignore: 'Si no pediste cambiar tu contraseña, ignora este correo: tu cuenta sigue segura.',
+  })
+}
+
+function codeEmail(
+  to: string,
+  name: string,
+  code: string,
+  copy: { subject: string; intro: string; textIntro: string; ignore: string },
+): Email {
   const first = escapeHtml(name.trim().split(/\s+/)[0] || 'estudiante')
   return {
     to,
-    subject: `Tu código de EcoEstudiante: ${code}`,
-    text: `Hola, ${first}:\n\nTu código de verificación de EcoEstudiante es ${code}.\nVence en 15 minutos.\n\nSi no creaste una cuenta, ignora este correo.`,
+    subject: copy.subject,
+    text: `Hola, ${first}:\n\n${copy.textIntro} ${code}.\nVence en 15 minutos.\n\n${copy.ignore}`,
     html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;color:#1f2a1f">
   <h2 style="color:#2f6b3a">EcoEstudiante</h2>
   <p>Hola, ${first}:</p>
-  <p>Tu código de verificación es:</p>
+  <p>${copy.intro}</p>
   <p style="font-size:32px;font-weight:700;letter-spacing:6px;margin:16px 0">${code}</p>
   <p>Vence en 15 minutos.</p>
-  <p style="color:#667;font-size:13px">Si no creaste una cuenta, ignora este correo.</p>
+  <p style="color:#667;font-size:13px">${copy.ignore}</p>
 </div>`,
   }
 }
@@ -115,5 +139,6 @@ export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): M
   return {
     mode,
     sendVerificationCode: (to, name, code) => send(verificationEmail(to, name, code)),
+    sendPasswordResetCode: (to, name, code) => send(resetEmail(to, name, code)),
   }
 }

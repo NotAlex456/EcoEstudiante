@@ -8,6 +8,9 @@ export const email = z.string().trim().toLowerCase().email(NOT_INSTITUTIONAL)
 
 export const isAllowedEmail = (value: string, allowed: string[]) => INSTITUTIONAL_EMAIL.test(value) || allowed.includes(value)
 
+/** Reglas de contraseña del registro y de la recuperación. */
+export const password = z.string().min(8, 'Usa al menos 8 caracteres.').max(72, 'Usa como máximo 72 caracteres.')
+
 export const name = z.string().trim().min(3, 'Escribe tu nombre y apellido.').max(80)
 export const career = z.enum(CAREERS as [string, ...string[]], 'Elige una carrera de la lista.')
 export const cycle = z.number().int().min(1, 'El ciclo va del 1 al 10.').max(10, 'El ciclo va del 1 al 10.')
@@ -18,7 +21,7 @@ export const registerSchema = z
     email,
     career,
     cycle,
-    password: z.string().min(8, 'Usa al menos 8 caracteres.').max(72, 'Usa como máximo 72 caracteres.'),
+    password,
   })
   .strict()
 
@@ -30,6 +33,16 @@ export const resendSchema = z.object({ userId: z.string().min(1) }).strict()
 
 export const loginSchema = z
   .object({ email: z.string().trim().toLowerCase().min(1), password: z.string().min(1, 'Escribe tu contraseña.') })
+  .strict()
+
+export const forgotSchema = z.object({ email: z.string().trim().toLowerCase().min(1, 'Escribe tu correo.') }).strict()
+
+export const resetSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().min(1, 'Escribe tu correo.'),
+    code: z.string().trim().min(1, 'Escribe el código.'),
+    password,
+  })
   .strict()
 
 export type RegisterInput = z.infer<typeof registerSchema>

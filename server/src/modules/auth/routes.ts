@@ -7,7 +7,7 @@ import type { Notifier } from '../../notify/notify'
 import { currentUserId, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
 import { getMe } from '../users/service'
-import { loginSchema, registerSchema, resendSchema, verifySchema } from './schemas'
+import { forgotSchema, loginSchema, registerSchema, resendSchema, resetSchema, verifySchema } from './schemas'
 import * as auth from './service'
 
 export function authRoutes(ctx: { config: Config; mailer: Mailer; notifier: Notifier }) {
@@ -35,6 +35,14 @@ export function authRoutes(ctx: { config: Config; mailer: Mailer; notifier: Noti
 
   router.post('/login', limited, body(loginSchema), async (req, res) => {
     res.json(await auth.login(req.body, ctx))
+  })
+
+  router.post('/forgot', limited, body(forgotSchema), async (req, res) => {
+    res.json(await auth.forgotPassword(req.body.email, ctx))
+  })
+
+  router.post('/reset', limited, body(resetSchema), async (req, res) => {
+    res.json(await auth.resetPassword(req.body, ctx))
   })
 
   router.get('/me', requireAuth(ctx.config), async (req, res) => {

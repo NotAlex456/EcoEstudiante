@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, type CodePurpose } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import type { Config } from '../../config'
@@ -26,17 +26,23 @@ const invalidCredentials = () => new AppError(401, 'INVALID_CREDENTIALS', 'Corre
  * Crea un código nuevo (borrando los anteriores) y lo envía, salvo que el último
  * tenga menos de 60 s. Devuelve el código solo si el correo está en modo consola.
  */
-async function issueCode(user: { id: string; email: string; name: string }, { mailer }: Ctx, force = false) {
-  const last = await prisma.emailCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } })
+async function issueCode(
+  user: { id: string; email: string; name: string },
+  { mailer }: Ctx,
+  force = false,
+  purpose: CodePurpose = 'verify',
+) {
+  const last = await prisma.emailCode.findFirst({ where: { userId: user.id, purpose }, orderBy: { createdAt: 'desc' } })
   if (!force && last && Date.now() - last.createdAt.getTime() < RESEND_COOLDOWN_MS) return { sent: false as const }
   const code = String(crypto.randomInt(100000, 1000000))
   await prisma.$transaction([
-    prisma.emailCode.deleteMany({ where: { userId: user.id } }),
+    prisma.emailCode.deleteMany({ where: { userId: user.id, purpose } }),
     prisma.emailCode.create({
-      data: { userId: user.id, codeHash: sha256(code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+      data: { userId: user.id, purpose, codeHash: sha256(code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
     }),
   ])
-  await mailer.sendVerificationCode(user.email, user.name, code)
+  if (purpose === 'reset') await mailer.sendPasswordResetCode(user.email, user.name, code)
+  else await mailer.sendVerificationCode(user.email, user.name, code)
   return { sent: true as const, devCode: mailer.mode === 'console' ? code : undefined }
 }
 
@@ -88,16 +94,8 @@ export async function verify(
   { config, notifier }: Ctx,
 ): Promise<{ token: string; user: MeDto }> {
   const user = await prisma.user.findUnique({ where: { id: input.userId } })
-  const record = user && (await prisma.emailCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }))
-  if (!user || user.verified || !record) throw invalidCode()
-  if (record.expiresAt.getTime() < Date.now()) throw new AppError(400, 'CODE_EXPIRED', 'El código venció. Pide uno nuevo.')
-
-  // Se reserva el intento de forma atómica ANTES de comparar: peticiones en paralelo no pasan de 5.
-  const claimed = await prisma.emailCode.updateMany({
-    where: { id: record.id, attempts: { lt: MAX_ATTEMPTS } },
-    data: { attempts: { increment: 1 } },
-  })
-  if (!claimed.count) throw new AppError(429, 'TOO_MANY_ATTEMPTS', 'Demasiados intentos. Pide un código nuevo.')
+  if (!user || user.verified) throw invalidCode()
+  const record = await claimCode(user.id, 'verify')
 
   const codeOk = sameHash(sha256(input.code), record.codeHash)
   const passwordOk = await bcrypt.compare(input.password, user.passwordHash)
@@ -105,7 +103,7 @@ export async function verify(
 
   const [activated] = await prisma.$transaction([
     prisma.user.updateMany({ where: { id: user.id, verified: false }, data: { verified: true } }),
-    prisma.emailCode.deleteMany({ where: { userId: user.id } }),
+    prisma.emailCode.deleteMany({ where: { userId: user.id, purpose: 'verify' } }),
   ])
   if (activated.count) {
     await notifier.notify(user.id, {
@@ -138,4 +136,49 @@ export async function login(input: LoginInput, ctx: Ctx): Promise<{ token: strin
 async function syncRole(userId: string, email: string, config: Config) {
   const role = config.adminEmails.includes(email.toLowerCase()) ? 'admin' : 'student'
   return prisma.user.update({ where: { id: userId }, data: { role } })
+}
+
+/**
+ * El código más reciente de ese tipo, con un intento reservado de forma atómica ANTES de comparar
+ * (peticiones en paralelo no pasan de 5). Un código "verify" nunca sirve como "reset" ni al revés.
+ */
+async function claimCode(userId: string, purpose: CodePurpose) {
+  const record = await prisma.emailCode.findFirst({ where: { userId, purpose }, orderBy: { createdAt: 'desc' } })
+  if (!record) throw invalidCode()
+  if (record.expiresAt.getTime() < Date.now()) throw new AppError(400, 'CODE_EXPIRED', 'El código venció. Pide uno nuevo.')
+  const claimed = await prisma.emailCode.updateMany({
+    where: { id: record.id, attempts: { lt: MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  })
+  if (!claimed.count) throw new AppError(429, 'TOO_MANY_ATTEMPTS', 'Demasiados intentos. Pide un código nuevo.')
+  return record
+}
+
+/**
+ * Pide un código para cambiar la contraseña. Responde lo mismo exista o no la cuenta, para no revelar
+ * quién está registrado. Solo envía a cuentas verificadas, reales y no bloqueadas.
+ */
+export async function forgotPassword(email: string, ctx: Ctx): Promise<{ ok: true; devCode?: string }> {
+  const user = await prisma.user.findUnique({ where: { email } })
+  if (!user || !user.verified || user.isBot || user.blockedAt) return { ok: true }
+  const issued = await issueCode(user, ctx, false, 'reset')
+  return issued.sent && issued.devCode ? { ok: true, devCode: issued.devCode } : { ok: true }
+}
+
+/** Cambia la contraseña con el código, cierra todas las sesiones anteriores y abre una nueva. */
+export async function resetPassword(
+  input: { email: string; code: string; password: string },
+  { config }: Ctx,
+): Promise<{ token: string; user: MeDto }> {
+  const user = await prisma.user.findUnique({ where: { email: input.email } })
+  if (!user || !user.verified || user.isBot || user.blockedAt) throw invalidCode()
+  const record = await claimCode(user.id, 'reset')
+  if (!sameHash(sha256(input.code), record.codeHash)) throw invalidCode()
+  const passwordHash = await bcrypt.hash(input.password, 10)
+  const [updated] = await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash, tokenVersion: { increment: 1 } } }),
+    prisma.emailCode.deleteMany({ where: { userId: user.id, purpose: 'reset' } }),
+  ])
+  const current = await syncRole(updated.id, updated.email, config)
+  return { token: signToken(current.id, current.tokenVersion, config.jwtSecret), user: toMe(current) }
 }
