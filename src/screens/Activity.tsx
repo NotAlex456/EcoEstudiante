@@ -117,12 +117,12 @@ export function Activity({ tab = 'acuerdos' }: { tab?: string }) {
                   <span>{m.mode === 'Venta' ? `S/ ${m.price}` : m.mode} · {m.course}</span>
                   <small>Publicado {timeAgo(m.createdAt)}</small>
                 </div>
-                <span className={`status-pill status-pill--${m.status.toLowerCase()}`}>{m.status}</span>
+                {m.moderated ? <span className="status-pill status-pill--moderada">Oculta por moderación</span> : <span className={`status-pill status-pill--${m.status.toLowerCase()}`}>{m.status}</span>}
               </a>
               <div className="list-card__actions">
-                <button onClick={() => navigate(`#/publicar/${m.id}`)}><Icon name="edit" size={16} /> Editar</button>
+                {!m.moderated && <button onClick={() => navigate(`#/publicar/${m.id}`)}><Icon name="edit" size={16} /> Editar</button>}
                 {m.status === 'Disponible' && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Pausado'))}><Icon name="pause" size={16} /> Pausar</button>}
-                {m.status === 'Pausado' && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Disponible'))}><Icon name="refresh" size={16} /> Reactivar</button>}
+                {m.status === 'Pausado' && !m.moderated && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Disponible'))}><Icon name="refresh" size={16} /> Reactivar</button>}
                 {(m.status === 'Disponible' || m.status === 'Reservado') && <button disabled={busy === m.id} onClick={() => run(m.id, () => setMaterialStatus(m.id, 'Entregado'), '¡Genial! Marcado como entregado.')}><Icon name="check" size={16} /> Entregado</button>}
                 {confirmDelete === m.id ? (
                   <button className="is-danger" disabled={busy === m.id} onClick={() => run(m.id, () => deleteMaterial(m.id), 'Publicación eliminada').then(() => setConfirmDelete(null))}>¿Eliminar? Sí</button>

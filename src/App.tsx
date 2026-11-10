@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
@@ -86,10 +86,36 @@ function Topbar() {
   )
 }
 
+/**
+ * Publica la altura real de la barra inferior (--mobile-nav-h) para que los botones fijos queden justo encima,
+ * en cualquier celular, y marca <html class="keyboard-open"> mientras el teclado está abierto.
+ */
+function useMobileNavLayout(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const nav = ref.current
+    const root = document.documentElement
+    if (!nav) return
+    const measure = () => root.style.setProperty('--mobile-nav-h', `${nav.offsetHeight}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(nav)
+    const viewport = window.visualViewport
+    const onViewport = () => root.classList.toggle('keyboard-open', !!viewport && window.innerHeight - viewport.height > 150)
+    viewport?.addEventListener('resize', onViewport)
+    return () => {
+      observer.disconnect()
+      viewport?.removeEventListener('resize', onViewport)
+      root.classList.remove('keyboard-open')
+    }
+  }, [ref])
+}
+
 function MobileNav({ active }: { active: string }) {
   const { activity } = useBadges()
+  const ref = useRef<HTMLElement>(null)
+  useMobileNavLayout(ref)
   return (
-    <nav className="mobile-nav" aria-label="Navegación principal">
+    <nav ref={ref} className="mobile-nav" aria-label="Navegación principal">
       {navItems.map((item) => (
         <a key={item.id} href={item.hash} className={active === item.id ? 'is-active' : ''} aria-current={active === item.id ? 'page' : undefined}>
           <span className="mobile-nav__icon">

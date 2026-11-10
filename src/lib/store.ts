@@ -134,7 +134,7 @@ export const initials = (name: string) =>
 
 /* ---------- auth (servidor) ---------- */
 
-type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string; notificationPrefs: NotificationPrefs }
+type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string; notificationPrefs: NotificationPrefs; role?: 'student' | 'admin' }
 
 /** Guarda al usuario del servidor en la caché local y abre su sesión. */
 function adoptUser(me: MeDto) {
@@ -195,6 +195,27 @@ export async function login(email: string, password: string): Promise<LoginResul
   } catch (error) {
     if (error instanceof ApiError && error.code === 'EMAIL_NOT_VERIFIED')
       return { needsVerification: true, userId: String(error.details.userId), devCode: error.details.devCode as string | undefined }
+    return failure(error)
+  }
+}
+
+/** Pide un código para cambiar la contraseña. El servidor responde igual exista o no la cuenta. */
+export async function forgotPassword(email: string): Promise<Failure | { ok: true; devCode?: string }> {
+  try {
+    return await api<{ ok: true; devCode?: string }>('POST', '/auth/forgot', { email: email.trim().toLowerCase() })
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Cambia la contraseña con el código e inicia sesión (las sesiones de otros dispositivos se cierran). */
+export async function resetPassword(email: string, code: string, password: string): Promise<Failure | { ok: true }> {
+  try {
+    const { token, user } = await api<AuthResponse>('POST', '/auth/reset', { email: email.trim().toLowerCase(), code: code.trim(), password })
+    setToken(token)
+    adoptUser(user)
+    return { ok: true }
+  } catch (error) {
     return failure(error)
   }
 }

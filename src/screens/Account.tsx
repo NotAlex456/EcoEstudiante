@@ -5,6 +5,7 @@ import { navigate } from '../lib/router'
 import { currentUser, getState, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
 import { loadNotifications, loadProfile, useRefresh } from '../lib/sync'
 import { AccessibilitySettings, NotificationSettings } from './Settings'
+import { Select } from '../components/inputs'
 import { canInstall, installApp, useInstallState } from '../pwa'
 
 export function Account({ section }: { section?: string }) {
@@ -124,8 +125,8 @@ function EditProfile({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} noValidate>
         <Field label="Nombre y apellido" error={error}><input value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setError('') }} /></Field>
         <div className="form-grid">
-          <Field label="Carrera"><select value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value })}>{CAREERS.map((c) => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Ciclo"><select value={form.cycle} onChange={(e) => setForm({ ...form, cycle: Number(e.target.value) })}>{CYCLES.map((c) => <option key={c} value={c}>{c}.° ciclo</option>)}</select></Field>
+          <Field label="Carrera"><Select label="Carrera" value={form.career} options={CAREERS.map((c) => ({ value: c, label: c }))} onChange={(career) => setForm({ ...form, career })} /></Field>
+          <Field label="Ciclo"><Select label="Ciclo" value={form.cycle} options={CYCLES.map((c) => ({ value: c, label: `${c}.° ciclo` }))} onChange={(cycle) => setForm({ ...form, cycle })} /></Field>
         </div>
         <Field label="Correo institucional" hint="El correo verificado no se puede cambiar."><input value={me.email} disabled /></Field>
         <Button type="submit" className="full-button" disabled={busy}>Guardar cambios</Button>

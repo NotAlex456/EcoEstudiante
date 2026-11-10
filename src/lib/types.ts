@@ -44,6 +44,8 @@ export type Material = {
   ownerId: string
   images: string[]
   status: MaterialStatus
+  /** Oculta por un administrador: el dueño no puede reactivarla ni editarla. */
+  moderated?: boolean
   createdAt: number
 }
 

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { BackLink, Button, EmptyState, Field, Icon, MaterialSummary, Stars } from '../components/ui'
+import { Select } from '../components/inputs'
 import { SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
 import {
@@ -58,9 +59,7 @@ export function Schedule({ materialId }: { materialId: string }) {
         <form className="form-card" onSubmit={submit} noValidate>
           <MaterialSummary material={material} />
           <Field label="Punto seguro del campus" hint={point?.detail}>
-            <select value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })}>
-              {SAFE_POINTS.map((p) => <option key={p.name}>{p.name}</option>)}
-            </select>
+            <Select label="Punto seguro del campus" value={form.place} options={SAFE_POINTS.map((p) => ({ value: p.name, label: p.name }))} onChange={(place) => setForm({ ...form, place })} />
           </Field>
           <div className="form-grid">
             <Field label="Día"><input type="date" min={toISODate(new Date())} value={form.date} onChange={(e) => { setForm({ ...form, date: e.target.value }); setError('') }} /></Field>
