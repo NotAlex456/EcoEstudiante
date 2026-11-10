@@ -76,7 +76,7 @@ export function Materials() {
                   <tr key={m.id}>
                     <td>{m.images[0] ? <img className="thumb" src={m.images[0]} alt="" /> : <span className="thumb" />}</td>
                     <td className="cell-title"><strong>{m.title}</strong><small>{m.category} · {m.course}</small></td>
-                    <td>{m.owner.name}{m.owner.blocked && <> <span className="pill pill--bloqueado">Bloqueado</span></>}<br /><small className="muted">{m.owner.email}</small></td>
+                    <td>{m.owner.name}{m.owner.deleted ? <> <span className="pill pill--eliminada">Cuenta eliminada</span></> : m.owner.blocked && <> <span className="pill pill--bloqueado">Bloqueado</span></>}<br /><small className="muted">{m.owner.email}</small></td>
                     <td><span className={pillClass(label)}>{label}</span></td>
                     <td><small>{formatDate(m.createdAt)}</small></td>
                     <td>

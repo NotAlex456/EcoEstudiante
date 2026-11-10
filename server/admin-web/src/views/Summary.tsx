@@ -8,6 +8,7 @@ const ACTION_LABEL: Record<string, string> = {
   delete_material: 'eliminó una publicación',
   block_user: 'bloqueó a un usuario',
   unblock_user: 'desbloqueó a un usuario',
+  delete_account: 'eliminó su propia cuenta',
   dismiss_report: 'descartó un reporte',
 }
 

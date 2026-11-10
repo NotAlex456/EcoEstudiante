@@ -187,3 +187,36 @@ describe('correcciones de la revisión final', () => {
     expect(await prisma.notification.findFirst({ where: { userId: carla.user.id, text: { contains: 'se canceló' } } })).not.toBeNull()
   })
 })
+
+describe('cuentas eliminadas en el panel', () => {
+  const deleteBeto = () => request(app).delete('/api/users/me').set(auth(beto.token)).send({ password: validRegistration.password })
+
+  it('la lista de usuarios muestra la cuenta eliminada con su nombre y correo originales', async () => {
+    await deleteBeto()
+    const res = await admin('get', '/users?q=beto.diaz')
+    expect(res.status).toBe(200)
+    expect(res.body.items).toHaveLength(1)
+    expect(res.body.items[0]).toMatchObject({ id: beto.user.id, deleted: true, name: 'Beto Díaz', email: 'beto.diaz@upsjb.edu.pe' })
+    expect(res.body.items[0].deletedAt).toEqual(expect.any(String))
+  })
+
+  it('no se puede desbloquear una cuenta eliminada', async () => {
+    await deleteBeto()
+    const res = await admin('post', `/users/${beto.user.id}/unblock`).send({})
+    expect(res.status).toBe(409)
+    expect(res.body.error.code).toBe('ACCOUNT_DELETED')
+  })
+
+  it('el resumen no cuenta las cuentas eliminadas', async () => {
+    const before = (await admin('get', '/stats')).body.students
+    await deleteBeto()
+    expect((await admin('get', '/stats')).body.students).toBe(before - 1)
+  })
+
+  it('sus publicaciones siguen en el panel con el dueño real', async () => {
+    await deleteBeto()
+    const res = await admin('get', '/materials')
+    const item = res.body.items.find((m: { id: string }) => m.id === materialId)
+    expect(item.owner).toMatchObject({ name: 'Beto Díaz', email: 'beto.diaz@upsjb.edu.pe', deleted: true })
+  })
+})

@@ -71,10 +71,12 @@ export function Users() {
                   <td>{u.rating.count ? `★ ${u.rating.value} (${u.rating.count})` : <span className="muted">Sin reseñas</span>}</td>
                   <td>
                     {u.role === 'admin' && <span className="pill pill--admin">Admin</span>}{' '}
-                    {u.blocked ? <span className="pill pill--bloqueado">Bloqueado</span> : <span className="pill">Activo</span>}
+                    {u.deleted
+                      ? <span className="pill pill--eliminada" title={u.deletedAt ? `Eliminada el ${formatDate(u.deletedAt)}` : undefined}>Cuenta eliminada{u.deletedAt ? ` · ${formatDate(u.deletedAt)}` : ''}</span>
+                      : u.blocked ? <span className="pill pill--bloqueado">Bloqueado</span> : <span className="pill">Activo</span>}
                   </td>
                   <td>
-                    {u.role !== 'admin' && (
+                    {u.role !== 'admin' && !u.deleted && (
                       <button className={`btn btn--small ${u.blocked ? 'btn--ghost' : 'btn--danger'}`} disabled={busy === u.id} onClick={() => toggle(u)}>
                         {u.blocked ? 'Desbloquear' : 'Bloquear'}
                       </button>

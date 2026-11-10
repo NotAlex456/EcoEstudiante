@@ -87,6 +87,7 @@ tr:last-child td { border-bottom: 0; }
 .pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; background: var(--forest-100); color: var(--forest-800); white-space: nowrap; }
 .pill--pausado, .pill--oculta { background: var(--amber-soft); color: #7a5a12; }
 .pill--eliminado, .pill--bloqueado { background: var(--rose-soft); color: var(--rose); }
+.pill--eliminada { background: var(--line); color: var(--ink); }
 .pill--entregado, .pill--admin { background: #e4eff7; color: #275b80; }
 
 .tabs { display: inline-flex; background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 14px; }
