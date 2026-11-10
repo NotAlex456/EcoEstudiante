@@ -632,6 +632,7 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 | Servicio | Para qué | Dónde se configura |
 |---|---|---|
 | **Render** | El servidor (https://ecoestudiante-api.onrender.com), en Ohio | `render.yaml` (Blueprint) + variables de entorno en el panel |
+| **Render** (sitio estático) | La app en la web (https://ecoestudiante.onrender.com), la misma del APK compilada con Vite | `render.yaml`; su dirección está en `CORS_ORIGINS` del servidor |
 | **Neon** | PostgreSQL 18, en Ohio (AWS US East 2) | `DATABASE_URL` (conexión directa, con `sslmode=require`) |
 | **Cloudinary** | Las fotos de las publicaciones | `CLOUDINARY_URL` |
 | **Brevo** | Los correos con el código de verificación | `BREVO_API_KEY` + `MAIL_FROM` (remitente verificado en Brevo) |
