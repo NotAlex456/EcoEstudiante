@@ -23,6 +23,7 @@
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.3",
+    "firebase-admin": "^14.5.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.5.0",
     "nodemailer": "^10.4.0",
@@ -51,6 +52,8 @@
     "@prisma/engines@6.19.3": true,
     "esbuild@0.28.2": true,
     "prisma@6.19.3": true,
-    "@prisma/client@6.19.3": true
+    "@prisma/client@6.19.3": true,
+    "@firebase/util": false,
+    "protobufjs": false
   }
 }

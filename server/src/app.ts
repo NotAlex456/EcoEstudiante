@@ -4,10 +4,12 @@ import type { Config } from './config'
 import { errorHandler, notFound } from './errors'
 import { createImageStorage, type ImageStorage } from './integrations/images'
 import { createMailer, type Mailer } from './integrations/mail'
+import { createPushSender, type PushSender } from './integrations/push'
 import { createNotifier, type Notifier } from './notify/notify'
 import { nullRealtime, type Realtime } from './realtime/socket'
 import { authRoutes } from './modules/auth/routes'
 import { agreementRoutes } from './modules/agreements/routes'
+import { deviceRoutes } from './modules/devices/routes'
 import { conversationRoutes } from './modules/conversations/routes'
 import { materialRoutes, myMaterialsRoute } from './modules/materials/routes'
 import { notificationRoutes } from './modules/notifications/routes'
@@ -16,11 +18,12 @@ import { savedRoutes, savedSearchRoutes } from './modules/saved/routes'
 import { uploadRoutes } from './modules/uploads/routes'
 import { userRoutes } from './modules/users/routes'
 
-export type AppDeps = { mailer: Mailer; images: ImageStorage; realtime: Realtime; notifier: Notifier }
+export type AppDeps = { mailer: Mailer; images: ImageStorage; realtime: Realtime; notifier: Notifier; push: PushSender }
 
 export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   const { mailer = createMailer(config), images = createImageStorage(config), realtime = nullRealtime } = deps
-  const notifier = deps.notifier ?? createNotifier(realtime)
+  const push = deps.push ?? createPushSender(config)
+  const notifier = deps.notifier ?? createNotifier({ realtime, push })
   const hub = { config, realtime, notifier }
   const app = express()
   app.disable('x-powered-by')
@@ -42,6 +45,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use('/api/notifications', notificationRoutes(config))
   app.use('/api/conversations', conversationRoutes(hub))
   app.use('/api/agreements', agreementRoutes(hub))
+  app.use('/api/devices', deviceRoutes(hub, push))
 
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {

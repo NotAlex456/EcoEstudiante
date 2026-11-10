@@ -4,6 +4,7 @@ import path from 'node:path'
 import request from 'supertest'
 import { createApp, type AppDeps } from '../src/app'
 import type { Config } from '../src/config'
+import type { PushMessage, PushSender } from '../src/integrations/push'
 import type { Realtime, ServerEvent } from '../src/realtime/socket'
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
@@ -53,7 +54,7 @@ export async function registerAndVerify(app: Express, overrides: Partial<typeof 
 }
 
 /** Realtime de mentira: guarda lo que se emitiría y permite marcar usuarios conectados. */
-export function fakeRealtime() {
+export function fakeRealtime(opts: { allOnline?: boolean } = {}) {
   const events: { userId: string; event: string; payload: unknown }[] = []
   const online = new Set<string>()
   return {
@@ -62,7 +63,7 @@ export function fakeRealtime() {
     emitToUser(userId: string, event: ServerEvent, payload: unknown) {
       events.push({ userId, event, payload })
     },
-    isOnline: async (userId: string) => online.has(userId),
+    isOnline: async (userId: string) => Boolean(opts.allOnline) || online.has(userId),
     close: async () => {},
   } satisfies Realtime & { events: unknown[]; online: Set<string> }
 }
@@ -88,3 +89,21 @@ export async function insertMaterial(ownerId: string, overrides: Record<string, 
 }
 
 export const authHeader = (token: string) => ({ Authorization: `Bearer ${token}` })
+
+/** Push de mentira: guarda lo enviado; `invalid` simula tokens que Firebase ya no reconoce y `fail`, una caída. */
+export function fakePush() {
+  const sent: { tokens: string[]; message: PushMessage }[] = []
+  const invalid = new Set<string>()
+  const state = {
+    mode: 'firebase' as const,
+    sent,
+    invalid,
+    fail: false,
+    async send(tokens: string[], message: PushMessage) {
+      if (state.fail) throw new Error('Firebase no responde')
+      sent.push({ tokens, message })
+      return { invalidTokens: tokens.filter((t) => invalid.has(t)) }
+    },
+  }
+  return state satisfies PushSender & { sent: unknown[] }
+}

@@ -30,7 +30,7 @@ async function setup(botsEnabled: boolean) {
   await seed(prisma)
   realtime = fakeRealtime()
   const config = testConfig({ botsEnabled })
-  hub = { config, realtime, notifier: createNotifier(realtime) }
+  hub = { config, realtime, notifier: createNotifier({ realtime }) }
   app = makeApp({ botsEnabled }, { realtime })
   beto = await registerAndVerify(app, { email: 'beto.diaz@upsjb.edu.pe', name: 'Beto Díaz' })
   const maria = await prisma.user.findUniqueOrThrow({ where: { email: 'bot.maria.quispe@upsjb.edu.pe' } })

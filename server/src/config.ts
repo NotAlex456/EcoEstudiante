@@ -17,6 +17,8 @@ export type Config = {
   /** Carpeta de las fotos cuando no hay Cloudinary. */
   uploadsDir: string
   cloudinaryUrl?: string
+  /** Cuenta de servicio de Firebase (JSON). Sin ella no se envía push. */
+  firebaseServiceAccount?: Record<string, unknown>
 }
 
 const optional = z
@@ -38,6 +40,18 @@ const schema = z.object({
   SMTP_PASS: optional,
   UPLOADS_DIR: optional,
   CLOUDINARY_URL: optional,
+  // JSON de la cuenta de servicio de Firebase, codificado en base64 (una sola línea, cómodo para Render).
+  FIREBASE_SERVICE_ACCOUNT: optional.transform((v, ctx) => {
+    if (!v) return undefined
+    try {
+      const json = JSON.parse(Buffer.from(v, 'base64').toString('utf8'))
+      if (json && typeof json === 'object' && !Array.isArray(json)) return json as Record<string, unknown>
+    } catch {
+      // se reporta abajo
+    }
+    ctx.addIssue({ code: 'custom', message: 'debe ser el JSON de la cuenta de servicio codificado en base64' })
+    return z.NEVER
+  }),
   MAIL_FROM: z.string().default('EcoEstudiante <no-reply@ecoestudiante.app>'),
   BOTS_ENABLED: z
     .string()
@@ -71,5 +85,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     botsEnabled: e.BOTS_ENABLED,
     uploadsDir: path.resolve(e.UPLOADS_DIR ?? path.join(import.meta.dirname, '..', 'uploads')),
     cloudinaryUrl: e.CLOUDINARY_URL,
+    firebaseServiceAccount: e.FIREBASE_SERVICE_ACCOUNT,
   }
 }
