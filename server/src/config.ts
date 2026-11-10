@@ -10,6 +10,8 @@ export type Config = {
   authRateLimit: number
   mail: {
     resendApiKey?: string
+    /** Brevo: API HTTP (sirve en Render gratuito, que bloquea los puertos SMTP). */
+    brevoApiKey?: string
     smtp?: { host: string; port: number; user: string; pass: string }
     from: string
   }
@@ -34,6 +36,7 @@ const schema = z.object({
   PUBLIC_URL: z.string().default('http://localhost:3000'),
   AUTH_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   RESEND_API_KEY: optional,
+  BREVO_API_KEY: optional,
   SMTP_HOST: optional,
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: optional,
@@ -70,8 +73,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   // En producción el disco del servidor se borra en cada despliegue y no hay consola para leer códigos.
   if (env.NODE_ENV === 'production') {
     if (!e.CLOUDINARY_URL) console.warn('Aviso: falta CLOUDINARY_URL; las fotos se guardarán en disco y se perderán al redesplegar.')
-    if (!e.RESEND_API_KEY && !(e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS))
-      console.warn('Aviso: no hay correo configurado (RESEND_API_KEY o SMTP_*); los códigos de verificación solo se verán en la consola.')
+    if (!e.BREVO_API_KEY && !e.RESEND_API_KEY && !(e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS))
+      console.warn('Aviso: no hay correo configurado (BREVO_API_KEY, RESEND_API_KEY o SMTP_*); los códigos de verificación solo se verán en la consola.')
   }
   return {
     port: e.PORT,
@@ -82,6 +85,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     authRateLimit: e.AUTH_RATE_LIMIT,
     mail: {
       resendApiKey: e.RESEND_API_KEY,
+      brevoApiKey: e.BREVO_API_KEY,
       smtp:
         e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS
           ? { host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS }

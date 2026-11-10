@@ -3,7 +3,7 @@ import type { Config } from '../config'
 import { AppError } from '../errors'
 
 export type Mailer = {
-  mode: 'resend' | 'smtp' | 'console'
+  mode: 'brevo' | 'resend' | 'smtp' | 'console'
   sendVerificationCode(to: string, name: string, code: string): Promise<void>
 }
 
@@ -31,14 +31,47 @@ function verificationEmail(to: string, name: string, code: string): Email {
   }
 }
 
-/** Elige Resend, SMTP o consola según la configuración disponible. */
+/** "Nombre <correo@x>" → { name, email }; un correo suelto también vale. */
+export function parseSender(from: string): { name?: string; email: string } {
+  const match = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from)
+  if (match) return { ...(match[1] ? { name: match[1] } : {}), email: match[2].trim() }
+  return { email: from.trim() }
+}
+
+/**
+ * Elige Brevo, Resend, SMTP o consola según la configuración disponible. En Render gratuito los puertos SMTP
+ * están bloqueados, así que en producción se usa una API HTTP (Brevo permite enviar desde un Gmail verificado).
+ */
 export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): Mailer {
-  const { resendApiKey, smtp, from } = config.mail
+  const { brevoApiKey, resendApiKey, smtp, from } = config.mail
 
   let send: (email: Email) => Promise<void>
   let mode: Mailer['mode']
 
-  if (resendApiKey) {
+  if (brevoApiKey) {
+    mode = 'brevo'
+    send = async (email) => {
+      const res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': brevoApiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          sender: parseSender(from),
+          to: [{ email: email.to }],
+          subject: email.subject,
+          htmlContent: email.html,
+          textContent: email.text,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      }).catch((error) => {
+        console.error('Brevo no respondió', error)
+        throw mailFailed()
+      })
+      if (!res.ok) {
+        console.error('Brevo respondió', res.status, await res.text().catch(() => ''))
+        throw mailFailed()
+      }
+    }
+  } else if (resendApiKey) {
     mode = 'resend'
     send = async (email) => {
       const res = await fetchImpl('https://api.resend.com/emails', {
@@ -58,6 +91,10 @@ export function createMailer(config: Config, fetchImpl: typeof fetch = fetch): M
       port: smtp.port,
       secure: smtp.port === 465,
       auth: { user: smtp.user, pass: smtp.pass },
+      // Si el puerto está bloqueado (como en Render gratuito), falla rápido en vez de colgar el registro.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     })
     send = async (email) => {
       try {
