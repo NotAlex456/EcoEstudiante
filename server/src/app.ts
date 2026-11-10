@@ -7,6 +7,7 @@ import { createMailer, type Mailer } from './integrations/mail'
 import { createNotifier, type Notifier } from './notify/notify'
 import { nullRealtime, type Realtime } from './realtime/socket'
 import { authRoutes } from './modules/auth/routes'
+import { conversationRoutes } from './modules/conversations/routes'
 import { materialRoutes, myMaterialsRoute } from './modules/materials/routes'
 import { notificationRoutes } from './modules/notifications/routes'
 import { reportRoutes } from './modules/reports/routes'
@@ -19,6 +20,7 @@ export type AppDeps = { mailer: Mailer; images: ImageStorage; realtime: Realtime
 export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   const { mailer = createMailer(config), images = createImageStorage(config), realtime = nullRealtime } = deps
   const notifier = deps.notifier ?? createNotifier(realtime)
+  const hub = { config, realtime, notifier }
   const app = express()
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
@@ -37,6 +39,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use('/api/saved-searches', savedSearchRoutes(config))
   app.use('/api/reports', reportRoutes(config))
   app.use('/api/notifications', notificationRoutes(config))
+  app.use('/api/conversations', conversationRoutes(hub))
 
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {

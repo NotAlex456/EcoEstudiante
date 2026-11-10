@@ -29,7 +29,7 @@ export type MaterialWithRelations = Material & { images: MaterialImage[]; owner:
 export const materialInclude = { images: { orderBy: { position: 'asc' as const } }, owner: true }
 
 /** Reputación de varios usuarios en una sola consulta. */
-async function ratingsOf(userIds: string[]) {
+export async function ratingsOf(userIds: string[]) {
   const groups = await prisma.review.groupBy({
     by: ['targetId'],
     where: { targetId: { in: userIds } },

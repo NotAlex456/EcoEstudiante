@@ -66,3 +66,25 @@ export function fakeRealtime() {
     close: async () => {},
   } satisfies Realtime & { events: unknown[]; online: Set<string> }
 }
+
+/** Inserta un material directamente (sin pasar por fotos ni validaciones de la API). */
+export async function insertMaterial(ownerId: string, overrides: Record<string, unknown> = {}) {
+  const { prisma } = await import('../src/db')
+  return prisma.material.create({
+    data: {
+      ownerId,
+      title: 'Calculadora Casio fx-570',
+      course: 'Matemática I',
+      career: 'Ingeniería de Sistemas',
+      cycle: 1,
+      category: 'Calculadoras',
+      mode: 'Venta',
+      price: 40,
+      condition: 'BuenEstado',
+      description: 'Funciona perfecto, con tapa y manual.',
+      ...overrides,
+    },
+  })
+}
+
+export const authHeader = (token: string) => ({ Authorization: `Bearer ${token}` })
