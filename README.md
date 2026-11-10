@@ -7,7 +7,7 @@ materiales académicos (libros, apuntes, calculadoras y separatas) y así reutil
 
 ## Probar la app
 
-- **Android:** descarga `EcoEstudiante-2.0.apk` desde la sección **Releases** de este repositorio e instálalo
+- **Android:** descarga `EcoEstudiante-2.1.apk` desde la sección **Releases** de este repositorio e instálalo
   (Android 7.0 o superior; permite "instalar apps desconocidas" cuando el teléfono lo pida).
 - **Navegador:** sigue los pasos de [Ejecutar en una computadora](#ejecutar-en-una-computadora).
 
@@ -26,7 +26,7 @@ en [server/README.md](server/README.md).
 
 | Área | Qué incluye |
 | --- | --- |
-| Cuenta | Registro solo con correo institucional `@upsjb.edu.pe`, verificación por código, inicio de sesión, edición de perfil |
+| Cuenta | Registro con correo institucional `@upsjb.edu.pe` (y correos de confianza permitidos), verificación por código, recuperación de contraseña, edición de perfil |
 | Explorar | Búsqueda, categorías, filtros (modalidad, carrera, ciclo, estado, precio máximo), materiales guardados y alertas de búsqueda |
 | Publicar | Venta, intercambio o donación, con fotos (comprimidas en el teléfono), edición, pausa y eliminación |
 | Chat | Conversación por material, mensajes no leídos y respuestas de los estudiantes simulados |
@@ -36,6 +36,7 @@ en [server/README.md](server/README.md).
 | Notificaciones | Ventana emergente con sonido y vibración; notificaciones de Android con la app cerrada; ajustes por tipo de aviso y horario silencioso |
 | Accesibilidad | Tamaño de texto, alto contraste, texto en negrita, espaciado de lectura y reducción de animaciones |
 | Instalación | APK de Android y aplicación web instalable (PWA) que funciona sin conexión |
+| Administración | Panel web en `/admin` para ocultar publicaciones, resolver reportes y bloquear usuarios |
 
 ## Tecnologías
 

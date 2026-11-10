@@ -70,6 +70,8 @@ Los servicios externos son opcionales: sin ellos el servidor funciona igual en m
 | Correo | `BREVO_API_KEY` (recomendado en Render), `RESEND_API_KEY` o `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (solo local) | El código de verificación se imprime en la consola y la app lo muestra en "Modo demostración" |
 | Fotos | `CLOUDINARY_URL` (en tu panel de Cloudinary: *Settings → API Keys → API environment variable*, con la forma `cloudinary://<key>:<secret>@<cloud>`) | Se guardan en `server/uploads/` y se sirven en `/uploads/…` |
 | Push | `FIREBASE_SERVICE_ACCOUNT` | No se envían notificaciones push (etapa 5) |
+| Correos de confianza | `ALLOWED_EMAILS` (separados por coma) | Solo pueden registrarse correos `@upsjb.edu.pe` |
+| Administradores | `ADMIN_EMAILS` (separados por coma) | Nadie puede entrar al panel `/admin` |
 | Estudiantes simulados | `BOTS_ENABLED=true` | Los bots no responden, no confirman entregas ni se interesan en lo que publicas |
 
 ## Despliegue en Render (gratis)
@@ -90,6 +92,13 @@ El servidor está publicado en https://ecoestudiante-api.onrender.com. Para desp
 
 > Render gratuito **bloquea los puertos SMTP**: en producción el correo debe ir por `BREVO_API_KEY` (o `RESEND_API_KEY`
 > con dominio propio). Gmail SMTP solo sirve en local.
+
+### Panel de administración
+
+`npm run build` compila el servidor y el panel (`admin-web/` → `dist-admin/`), que se abre en
+`http://localhost:3000/admin`. Para trabajar en el panel con recarga al instante: `npm run dev` en una terminal y
+`npm run dev:admin` en otra (abre `http://localhost:5174/admin/`). Se entra con una cuenta cuyo correo esté en
+`ADMIN_EMAILS`.
 
 ### Ver los bots en acción
 

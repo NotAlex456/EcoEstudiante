@@ -4,7 +4,7 @@ Documento de apoyo para la sustentación. Explica **qué** se construye, **cómo
 tomó cada decisión. El detalle técnico exacto está en el spec
 (`docs/superpowers/specs/2026-11-09-backend-design.md`) y en los planes de implementación (`docs/superpowers/plans/`).
 
-> **Estado:** las 5 etapas están construidas y el servidor está publicado en https://ecoestudiante-api.onrender.com. Funciona el registro con correo real, las publicaciones con fotos en la nube, el chat en tiempo real, los acuerdos, las reseñas, los estudiantes simulados y los avisos push con la app cerrada. Se probó en un celular real con el APK 2.0.
+> **Estado:** las 5 etapas están construidas y el servidor está publicado en https://ecoestudiante-api.onrender.com. Funciona el registro con correo real, las publicaciones con fotos en la nube, el chat en tiempo real, los acuerdos, las reseñas, los estudiantes simulados y los avisos push con la app cerrada. Se probó en un celular real con el APK 2.0. La etapa 6 agrega recuperación de contraseña, correos permitidos, categorías libres y un panel de administración en https://ecoestudiante-api.onrender.com/admin (§7.7 y §7.8).
 
 ## Índice
 
@@ -193,7 +193,7 @@ erDiagram
     string id PK
     string ownerId FK
     string title
-    enum category
+    string category
     enum mode
     int price
     enum condition
@@ -229,7 +229,7 @@ erDiagram
 `BotJob` (tareas programadas de los bots) no se relaciona con las demás tablas: guarda en un campo JSON los ids que
 necesita.
 
-### 5.2 Las 15 tablas
+### 5.2 Las 16 tablas
 
 | Tabla | Qué guarda |
 |---|---|
@@ -248,10 +248,11 @@ necesita.
 | **DeviceToken** | Identificadores de cada celular para enviarle push |
 | **BotJob** | Acciones programadas de los estudiantes simulados |
 | **Upload** | Quién subió cada foto: nadie puede usar ni borrar fotos ajenas |
+| **ModerationLog** | Cada acción de un administrador: quién, qué, cuándo y por qué |
 
 ### 5.3 Decisiones de diseño de la base de datos
 
-- **Enums** para valores fijos (modalidad, categoría, estado): la base rechaza valores inválidos.
+- **Enums** para valores fijos (modalidad, estado, rol): la base rechaza valores inválidos. La **categoría** es texto libre normalizado ("  kit  de LABORATORIO " → "Kit de laboratorio"), para que la app no se limite a libros, apuntes, calculadoras y separatas.
 - **`UNIQUE (materialId, buyerId)` en Conversation**: un comprador tiene un solo chat por material. Lo garantiza la
   base de datos, no solo el código.
 - **`buyerReadAt` y `sellerReadAt`**: como un chat siempre tiene dos participantes, basta una fecha de "última lectura"
@@ -513,6 +514,38 @@ Dos reglas del worker:
 Las frases de los bots viven en `shared/bot-replies.ts`, el mismo archivo que antes usaba la app, así que responden
 igual que siempre. Se activan con `BOTS_ENABLED=true`.
 
+### 7.7 Recuperar la contraseña y cerrar sesiones
+
+1. En "Ingresar", **"¿Olvidaste tu contraseña?"** pide el correo (`POST /auth/forgot`). La respuesta es **la misma
+   exista o no la cuenta**, para que nadie pueda averiguar quién está registrado.
+2. Si la cuenta existe, llega un **código de 6 dígitos** por correo (Brevo), que vence en 15 minutos y admite 5
+   intentos. Se guarda en la misma tabla que el código del registro, pero marcado como `reset`: un código de
+   registro no sirve para recuperar ni al revés.
+3. Con el código y la contraseña nueva (`POST /auth/reset`) se guarda el hash nuevo, **se cierran todas las sesiones
+   anteriores** y se inicia una nueva.
+
+**¿Cómo se cierran sesiones con JWT, que no se guardan en el servidor?** Cada usuario tiene un contador
+`tokenVersion` que va dentro del token. En cada petición (y al conectar el socket) el servidor compara la versión
+del token con la de la base: cambiar la contraseña o bloquear la cuenta sube el contador, y todos los tokens
+anteriores dejan de servir al instante.
+
+### 7.8 Moderación y panel de administración
+
+- **Quién es administrador:** los correos de la variable `ADMIN_EMAILS` reciben el rol `admin` al ingresar. Sacarlos
+  de la lista se lo quita, y como el rol se lee de la base en cada petición, pierden el acceso enseguida.
+- **Correos permitidos:** `ALLOWED_EMAILS` deja registrarse a personas de confianza sin correo institucional (por
+  ejemplo, para probar la app). El resto recibe el mismo mensaje de siempre.
+- **El panel** es una página web aparte en https://ecoestudiante-api.onrender.com/admin: una app React pequeña (`server/admin-web/`) que el mismo
+  servidor compila y sirve. Se entra con la cuenta de siempre; si no es administradora, responde "No tienes acceso".
+- **Qué puede hacer** (todo en `/api/admin/*`, y un estudiante recibe 403):
+  - **Resumen:** estudiantes, publicaciones activas, entregas completadas y reportes pendientes.
+  - **Publicaciones:** ocultar (pausa la publicación, cancela sus entregas en curso y avisa al dueño y al
+    comprador), restaurar o eliminar. El dueño ve "Oculta por moderación" y solo puede eliminarla.
+  - **Reportes:** "Ocultar publicación" (resuelve todos sus reportes) o "Descartar".
+  - **Usuarios:** bloquear o desbloquear. Un bloqueado no puede entrar, su sesión y su conexión en vivo se cortan,
+    y sus publicaciones se ocultan mientras dure el bloqueo. No se puede bloquear a otro administrador.
+- **Trazabilidad:** cada acción queda en `ModerationLog` y se ve en el resumen del panel.
+
 ---
 
 ## 8. Seguridad
@@ -520,7 +553,10 @@ igual que siempre. Se activan con `BOTS_ENABLED=true`.
 | Riesgo | Medida |
 |---|---|
 | Robo de contraseñas | **bcrypt** con *salt*: ni el servidor conoce las contraseñas |
-| Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código |
+| Personas ajenas a la universidad | Registro solo con correo `@upsjb.edu.pe` **verificado** con un código (y los correos de confianza de `ALLOWED_EMAILS`, también verificados) |
+| Contraseña olvidada o filtrada | Recuperación con código por correo; al cambiarla se cierran todas las sesiones (`tokenVersion`) |
+| Usuarios que abusan | Bloqueo desde el panel: corta su sesión y su conexión al instante y oculta sus publicaciones |
+| Panel de administración | Solo cuentas con rol `admin` (403 para el resto, comprobado en cada petición); el panel no se puede incrustar en otra página (`X-Frame-Options: DENY`) |
 | Adivinar el código | 6 dígitos, vence en 15 min, guardado con hash y máx. 5 intentos, reservados de forma atómica para que ni peticiones en paralelo los superen |
 | Re-registrar un correo ajeno sin verificar | La verificación exige el código **y** la contraseña del registro: quien re-registre el correo no puede quedarse con la cuenta |
 | Phishing en el correo de verificación | El nombre se escapa antes de insertarlo en el HTML del correo |
@@ -647,6 +683,15 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 ---
 
 ## 14. Preguntas probables en la sustentación
+
+**¿Cómo se recupera una contraseña sin revelar quién tiene cuenta?**
+La pantalla responde lo mismo exista o no el correo. Solo si existe se envía un código de un solo uso, marcado como
+"recuperación" para que no sirva como código de registro. Al cambiar la contraseña sube `tokenVersion`, y eso cierra
+las sesiones de los demás dispositivos.
+
+**¿Cómo se modera la comunidad?**
+Desde el panel en `/admin`, solo para cuentas administradoras. Se pueden ocultar publicaciones (con aviso al dueño),
+resolver reportes y bloquear usuarios. Cada acción queda registrada con quién la hizo y por qué.
 
 **¿Por qué no guardar la contraseña cifrada en vez de con hash?**
 Lo cifrado se puede descifrar con la clave, y el hash no tiene vuelta atrás. Al iniciar sesión se calcula el hash de
