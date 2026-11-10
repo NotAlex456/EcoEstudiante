@@ -19,9 +19,9 @@ export const SEED_USERS: SeedUser[] = [
   { id: 'u-maria', name: 'María Fernanda Quispe', email: 'bot.maria.quispe@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 8, baseRating: 4.9, baseRatingCount: 14 },
   { id: 'u-diego', name: 'Diego Salazar', email: 'bot.diego.salazar@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 9, baseRating: 4.8, baseRatingCount: 9 },
   { id: 'u-lucia', name: 'Lucía Mendoza', email: 'bot.lucia.mendoza@upsjb.edu.pe', career: 'Ingeniería de Sistemas', cycle: 10, baseRating: 5, baseRatingCount: 6 },
-  { id: 'u-jorge', name: 'Jorge Paredes', email: 'bot.jorge.paredes@upsjb.edu.pe', career: 'Administración', cycle: 8, baseRating: 4.7, baseRatingCount: 11 },
+  { id: 'u-jorge', name: 'Jorge Paredes', email: 'bot.jorge.paredes@upsjb.edu.pe', career: 'Administración de Empresas', cycle: 8, baseRating: 4.7, baseRatingCount: 11 },
   { id: 'u-ana', name: 'Ana Torres', email: 'bot.ana.torres@upsjb.edu.pe', career: 'Contabilidad', cycle: 9, baseRating: 4.9, baseRatingCount: 7 },
-  { id: 'u-carlos', name: 'Carlos Vela', email: 'bot.carlos.vela@upsjb.edu.pe', career: 'Administración', cycle: 10, baseRating: 4.6, baseRatingCount: 5 },
+  { id: 'u-carlos', name: 'Carlos Vela', email: 'bot.carlos.vela@upsjb.edu.pe', career: 'Administración de Empresas', cycle: 10, baseRating: 4.6, baseRatingCount: 5 },
 ]
 
 export type SeedMaterial = {
@@ -30,7 +30,7 @@ export type SeedMaterial = {
   course: string
   career: string
   cycle: number
-  category: 'Libros' | 'Apuntes' | 'Calculadoras' | 'Separatas'
+  category: string
   mode: 'Venta' | 'Intercambio' | 'Donación'
   price: number
   exchangeFor?: string
@@ -65,7 +65,7 @@ const materials = [
   },
   {
     title: 'Separata de Álgebra',
-    course: 'Matemática Básica', career: 'Administración', cycle: 1, category: 'Separatas', mode: 'Venta', price: 12,
+    course: 'Matemática Básica', career: 'Administración de Empresas', cycle: 1, category: 'Separatas', mode: 'Venta', price: 12,
     condition: 'Usado', ownerId: 'u-jorge', images: [img('1608048608477-30389696fdc1')],
     description: 'Separata original con ejercicios prácticos. Algunas anotaciones útiles en los márgenes.',
   },
@@ -77,7 +77,7 @@ const materials = [
   },
   {
     title: 'Cuaderno de Estadística',
-    course: 'Estadística General', career: 'Administración', cycle: 3, category: 'Apuntes', mode: 'Donación', price: 0,
+    course: 'Estadística General', career: 'Administración de Empresas', cycle: 3, category: 'Apuntes', mode: 'Donación', price: 0,
     condition: 'Buen estado', ownerId: 'u-carlos', images: [img('1761821170104-ccd3e3e21318')],
     description: 'Teoría y ejercicios desarrollados durante todo el ciclo, con fórmulas resumidas al final.',
   },

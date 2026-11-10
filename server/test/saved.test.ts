@@ -63,7 +63,7 @@ describe('búsquedas guardadas', () => {
   })
 
   it('valida categoría y modalidad', async () => {
-    expect((await post(ana.token, { ...search, category: 'Juguetes' })).status).toBe(400)
+    expect((await post(ana.token, { ...search, category: 'x' })).status).toBe(400) // categoría libre, pero de 2 a 40 caracteres
     expect((await post(ana.token, { ...search, mode: 'Alquiler' })).status).toBe(400)
     expect((await post(ana.token, { ...search, category: 'Libros', mode: 'Donación' })).status).toBe(201)
   })

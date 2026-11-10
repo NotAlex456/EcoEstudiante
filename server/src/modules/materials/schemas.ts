@@ -1,8 +1,13 @@
 import { z } from 'zod'
-import { CAREERS, CATEGORIES, CONDITIONS, MODES } from '../../../../shared/constants'
+import { CAREERS, CONDITIONS, MODES } from '../../../../shared/constants'
+import { normalizeCategory } from '../../../../shared/text'
 
 const career = z.enum(CAREERS as [string, ...string[]], 'Elige una carrera de la lista.')
-const category = z.enum(CATEGORIES, 'Elige una categoría de la lista.')
+/** Categoría libre (2 a 40 caracteres), guardada en su forma normalizada. */
+export const category = z
+  .string()
+  .transform(normalizeCategory)
+  .pipe(z.string().min(2, 'La categoría debe tener al menos 2 caracteres.').max(40, 'La categoría puede tener hasta 40 caracteres.'))
 const mode = z.enum(MODES, 'Elige venta, intercambio o donación.')
 const condition = z.enum(CONDITIONS, 'Elige el estado del material.')
 const cycle = z.number().int().min(1, 'El ciclo va del 1 al 10.').max(10, 'El ciclo va del 1 al 10.')
@@ -11,7 +16,7 @@ const cycle = z.number().int().min(1, 'El ciclo va del 1 al 10.').max(10, 'El ci
 export const materialSchema = z
   .object({
     title: z.string().trim().min(5, 'Escribe un título de al menos 5 caracteres.').max(100),
-    course: z.string().trim().min(1, 'Indica el curso.').max(80),
+    course: z.string().trim().min(2, 'Indica el curso (al menos 2 caracteres).').max(80, 'El curso puede tener hasta 80 caracteres.'),
     career,
     cycle,
     category,

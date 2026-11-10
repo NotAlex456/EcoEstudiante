@@ -19,6 +19,11 @@ export function materialRoutes(hub: Hub, images: ImageStorage) {
     res.json(await materials.list(query.data))
   })
 
+  // Antes de "/:id": si no, "suggestions" se tomaría como un id.
+  router.get('/suggestions', async (_req, res) => {
+    res.json(await materials.suggestions())
+  })
+
   router.get('/:id', optionalAuth(hub.config), async (req, res) => {
     res.json(await materials.getVisible(String(req.params.id), req.user?.id))
   })

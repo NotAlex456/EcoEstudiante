@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { CATEGORIES, MODES } from '../../../../shared/constants'
+import { MODES } from '../../../../shared/constants'
+import { category } from '../materials/schemas'
 import type { Config } from '../../config'
 import { currentUserId, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
@@ -9,7 +10,7 @@ import * as saved from './service'
 const searchSchema = z
   .object({
     query: z.string().trim().max(80),
-    category: z.enum(['Todos', ...CATEGORIES], 'Elige una categoría de la lista.'),
+    category: z.union([z.literal('Todos'), category]),
     mode: z.enum(['Todos', ...MODES], 'Elige una modalidad de la lista.'),
   })
   .strict()

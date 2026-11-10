@@ -136,7 +136,7 @@ describe('materiales: crear, listar y ver', () => {
     expect([p2.body.items.length, p2.body.hasMore]).toEqual([5, false])
     expect((await list('?page=0')).status).toBe(400)
     expect((await list('?page=abc')).status).toBe(400)
-    expect((await list('?category=Juguetes')).status).toBe(400)
+    expect((await list('?category=x')).status).toBe(400) // categoría libre, pero de 2 a 40 caracteres
   })
 
   it('un material pausado solo lo ve su dueño', async () => {

@@ -1,6 +1,6 @@
 import type { MaterialStatus, Prisma } from '@prisma/client'
-import { CATEGORIES } from '../../../../shared/constants'
 import { matchesSearch } from '../../../../shared/search'
+import { foldText } from '../../../../shared/text'
 import { prisma } from '../../db'
 import { toCondition, toMode } from '../../enums'
 import { AppError } from '../../errors'
@@ -57,11 +57,17 @@ const dataFrom = (input: MaterialInput) => ({
   description: input.description,
 })
 
+/** Categorías existentes que cumplen `test` (comparadas sin mayúsculas ni tildes, que Postgres no ignora). */
+async function categoriesWhere(test: (folded: string) => boolean) {
+  const rows = await prisma.material.findMany({ distinct: ['category'], select: { category: true } })
+  return rows.map((r) => r.category).filter((c) => test(foldText(c)))
+}
+
 export async function list(query: ListQuery): Promise<{ items: MaterialDto[]; page: number; hasMore: boolean }> {
   const and: Prisma.MaterialWhereInput[] = [{ status: { in: ['Disponible', 'Reservado'] } }]
   if (query.q) {
-    const term = query.q.toLocaleLowerCase()
-    const categories = CATEGORIES.filter((c) => c.toLocaleLowerCase().includes(term))
+    const term = foldText(query.q)
+    const categories = await categoriesWhere((c) => c.includes(term))
     and.push({
       OR: [
         { title: { contains: query.q, mode: 'insensitive' } },
@@ -70,7 +76,10 @@ export async function list(query: ListQuery): Promise<{ items: MaterialDto[]; pa
       ],
     })
   }
-  if (query.category) and.push({ category: query.category })
+  if (query.category) {
+    const wanted = foldText(query.category)
+    and.push({ category: { in: await categoriesWhere((c) => c === wanted) } })
+  }
   if (query.mode) and.push({ mode: toMode(query.mode) })
   if (query.career) and.push({ career: query.career })
   if (query.cycle) and.push({ cycle: query.cycle })
@@ -234,4 +243,28 @@ export async function emitMaterialUpdated(realtime: Realtime, materialId: string
   if (!material) return
   const users = new Set([material.ownerId, ...material.conversations.map((c) => c.buyerId)])
   for (const userId of users) realtime.emitToUser(userId, 'material:updated', { materialId, status })
+}
+
+/** Para las sugerencias de la app: categorías disponibles por cantidad (máx. 30) y los cursos más usados (máx. 100). */
+export async function suggestions(): Promise<{ categories: { name: string; count: number }[]; courses: string[] }> {
+  const [categories, courses] = await Promise.all([
+    prisma.material.groupBy({
+      by: ['category'],
+      where: { status: 'Disponible' },
+      _count: { _all: true },
+      orderBy: [{ _count: { category: 'desc' } }, { category: 'asc' }],
+      take: 30,
+    }),
+    prisma.material.groupBy({
+      by: ['course'],
+      where: { status: { not: 'Eliminado' } },
+      _count: { _all: true },
+      orderBy: [{ _count: { course: 'desc' } }, { course: 'asc' }],
+      take: 100,
+    }),
+  ])
+  return {
+    categories: categories.map((c) => ({ name: c.category, count: c._count._all })),
+    courses: courses.map((c) => c.course),
+  }
 }

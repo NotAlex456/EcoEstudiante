@@ -1,5 +1,6 @@
 export type Mode = 'Venta' | 'Intercambio' | 'Donación'
-export type Category = 'Libros' | 'Apuntes' | 'Calculadoras' | 'Separatas'
+/** Categoría escrita libremente (normalizada con normalizeCategory). */
+export type Category = string
 export type Condition = 'Como nuevo' | 'Buen estado' | 'Usado'
 export type MaterialStatus = 'Disponible' | 'Reservado' | 'Entregado' | 'Pausado'
 export type AgreementStatus = 'Pendiente' | 'Confirmado' | 'Completado' | 'Cancelado'
