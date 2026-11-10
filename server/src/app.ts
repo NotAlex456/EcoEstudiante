@@ -1,5 +1,7 @@
 import cors from 'cors'
 import express from 'express'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Config } from './config'
 import { errorHandler, notFound } from './errors'
 import { createImageStorage, type ImageStorage } from './integrations/images'
@@ -52,6 +54,17 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {
     app.use('/uploads', express.static(config.uploadsDir, { index: false, dotfiles: 'deny', maxAge: '7d' }))
+  }
+
+  // Panel de administración: una página aparte (server/admin-web), compilada en dist-admin.
+  if (fs.existsSync(path.join(config.adminDir, 'index.html'))) {
+    const noFrames: express.RequestHandler = (_req, res, next) => {
+      res.setHeader('X-Frame-Options', 'DENY')
+      next()
+    }
+    app.use('/admin', noFrames, express.static(config.adminDir, { index: 'index.html', maxAge: '1h' }))
+    // Rutas internas del panel (/admin/usuarios…) devuelven su página.
+    app.get('/admin/*rest', noFrames, (_req, res) => res.sendFile(path.join(config.adminDir, 'index.html')))
   }
 
   app.use((_req, _res, next) => next(notFound()))

@@ -62,3 +62,26 @@ describe('configuración de producción', () => {
     warn.mockRestore()
   })
 })
+
+describe('panel de administración (/admin)', () => {
+  it('sirve la página del panel, con fallback a index.html y sin permitir iframes', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eco-admin-'))
+    fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>Panel EcoEstudiante</title>')
+    const app = makeApp({ adminDir: dir })
+    const home = await request(app).get('/admin/')
+    expect(home.status).toBe(200)
+    expect(home.text).toContain('Panel EcoEstudiante')
+    expect(home.headers['x-frame-options']).toBe('DENY')
+    const deep = await request(app).get('/admin/usuarios')
+    expect(deep.status).toBe(200)
+    expect(deep.text).toContain('Panel EcoEstudiante')
+  })
+
+  it('sin la carpeta compilada no monta /admin', async () => {
+    const app = makeApp({ adminDir: '/no/existe' })
+    expect((await request(app).get('/admin/')).status).toBe(404)
+  })
+})

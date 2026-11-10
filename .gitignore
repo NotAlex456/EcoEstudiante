@@ -41,3 +41,6 @@ firebase-adminsdk*.json
 
 # APK compilados (se publican en Releases, no en git)
 *.apk
+
+# Panel de administración compilado
+server/dist-admin/

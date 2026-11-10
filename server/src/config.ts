@@ -18,6 +18,8 @@ export type Config = {
   botsEnabled: boolean
   /** Carpeta de las fotos cuando no hay Cloudinary. */
   uploadsDir: string
+  /** Panel de administración compilado (server/dist-admin); si no existe, /admin no se monta. */
+  adminDir: string
   cloudinaryUrl?: string
   /** Cuenta de servicio de Firebase (JSON). Sin ella no se envía push. */
   firebaseServiceAccount?: Record<string, unknown>
@@ -104,6 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     },
     botsEnabled: e.BOTS_ENABLED,
     uploadsDir: path.resolve(e.UPLOADS_DIR ?? path.join(import.meta.dirname, '..', 'uploads')),
+    adminDir: path.join(import.meta.dirname, '..', 'dist-admin'),
     cloudinaryUrl: e.CLOUDINARY_URL,
     firebaseServiceAccount: e.FIREBASE_SERVICE_ACCOUNT,
     allowedEmails: emailList(e.ALLOWED_EMAILS),

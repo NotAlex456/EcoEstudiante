@@ -19,6 +19,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     botsEnabled: false,
     uploadsDir: path.join(os.tmpdir(), 'eco-test-uploads'),
     allowedEmails: [],
+    adminDir: path.join(os.tmpdir(), 'eco-sin-panel'),
     adminEmails: [],
     ...overrides,
   }
