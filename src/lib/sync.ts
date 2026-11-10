@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from './api'
 import { getState, updateCache } from './store'
-import type { Material, SavedSearch, State, User } from './types'
+import type { Agreement, Conversation, Material, Message, Notification, SavedSearch, State, User } from './types'
 
 export type OwnerDto = { id: string; name: string; career: string; cycle: number; rating: { value: number; count: number } }
 
@@ -122,9 +122,166 @@ export async function loadActivity() {
   }))
 }
 
-/** Al abrir la app o iniciar sesión. Un fallo de red deja la caché como estaba. */
+/* ---------- chat, acuerdos y notificaciones ---------- */
+
+export type MessageDto = { id: string; conversationId: string; senderId: string; text: string; createdAt: string }
+
+export type ConversationDto = {
+  id: string
+  materialId: string
+  buyerId: string
+  sellerId: string
+  buyerReadAt: string | null
+  sellerReadAt: string | null
+  lastMessageAt: string
+  lastMessage: MessageDto | null
+  unread: number
+  material: MaterialDto
+  other: OwnerDto
+}
+
+export type AgreementDto = Omit<Agreement, 'createdAt' | 'updatedAt' | 'rating'> & {
+  createdAt: string
+  updatedAt: string
+  review: { stars: number; comment: string; createdAt: string } | null
+}
+
+export type NotificationDto = { id: string; category: string; text: string; link: string; read: boolean; createdAt: string }
+
+export const fromMessageDto = (m: MessageDto): Message => ({ id: m.id, from: m.senderId, text: m.text, at: Date.parse(m.createdAt) })
+
+export function fromAgreementDto({ review, createdAt, updatedAt, note, ...rest }: AgreementDto): Agreement {
+  return {
+    ...rest,
+    ...(note ? { note } : {}),
+    createdAt: Date.parse(createdAt),
+    updatedAt: Date.parse(updatedAt),
+    ...(review ? { rating: { stars: review.stars, comment: review.comment, at: Date.parse(review.createdAt) } } : {}),
+  }
+}
+
+export const fromNotificationDto = (n: NotificationDto, userId: string, live = false): Notification => ({
+  id: n.id,
+  userId,
+  text: n.text,
+  link: n.link,
+  read: n.read,
+  at: Date.parse(n.createdAt),
+  ...(live ? { live } : {}),
+})
+
+/** Mensajes ordenados y sin repetidos (por id). */
+function mergeMessages(current: Message[], incoming: Message[]) {
+  const byId = new Map(current.map((m) => [m.id, m]))
+  for (const m of incoming) byId.set(m.id, m)
+  return [...byId.values()].sort((a, b) => a.at - b.at)
+}
+
+/** La conversación del servidor, conservando los mensajes que la caché ya tenía. */
+function fromConversationDto(dto: ConversationDto, cached?: Conversation): Conversation {
+  const last = dto.lastMessage ? [fromMessageDto(dto.lastMessage)] : []
+  return {
+    id: dto.id,
+    materialId: dto.materialId,
+    participants: [dto.buyerId, dto.sellerId],
+    messages: mergeMessages(cached?.messages ?? [], last),
+    readAt: {
+      [dto.buyerId]: dto.buyerReadAt ? Date.parse(dto.buyerReadAt) : 0,
+      [dto.sellerId]: dto.sellerReadAt ? Date.parse(dto.sellerReadAt) : 0,
+    },
+    unread: dto.unread,
+  }
+}
+
+/** Guarda conversaciones del servidor (con su material y la otra persona) en la caché. */
+export function adoptConversations(dtos: ConversationDto[], replaceAll = false) {
+  adoptMaterials(dtos.map((d) => d.material))
+  updateCache((s) => {
+    const cached = new Map(s.conversations.map((c) => [c.id, c]))
+    const incoming = dtos.map((d) => fromConversationDto(d, cached.get(d.id)))
+    const ids = new Set(incoming.map((c) => c.id))
+    const kept = replaceAll ? [] : s.conversations.filter((c) => !ids.has(c.id))
+    return { ...s, users: withUsers(s, dtos.map((d) => d.other)), conversations: [...kept, ...incoming] }
+  })
+}
+
+export async function loadConversations() {
+  if (!getState().sessionUserId) return
+  adoptConversations(await api<ConversationDto[]>('GET', '/conversations'), true)
+}
+
+/** Reemplaza los mensajes de una conversación por los del servidor (los 50 últimos). */
+export async function loadMessages(conversationId: string) {
+  const messages = await api<MessageDto[]>('GET', `/conversations/${encodeURIComponent(conversationId)}/messages`)
+  if (!getState().conversations.some((c) => c.id === conversationId)) await loadConversations()
+  updateCache((s) => ({
+    ...s,
+    conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, messages: messages.map(fromMessageDto) } : c)),
+  }))
+}
+
+/** Un mensaje nuevo (enviado o recibido por el socket). Si no es mío y no estoy mirando ese chat, cuenta como no leído. */
+export function adoptMessage(conversationId: string, dto: MessageDto) {
+  const s = getState()
+  const conversation = s.conversations.find((c) => c.id === conversationId)
+  if (!conversation) return void loadConversations().catch(() => undefined)
+  if (conversation.messages.some((m) => m.id === dto.id)) return
+  const mine = dto.senderId === s.sessionUserId
+  const viewing = location.hash === `#/chat/${conversationId}`
+  updateCache((st) => ({
+    ...st,
+    conversations: st.conversations.map((c) =>
+      c.id === conversationId
+        ? { ...c, messages: mergeMessages(c.messages, [fromMessageDto(dto)]), unread: mine || viewing ? c.unread ?? 0 : (c.unread ?? 0) + 1 }
+        : c,
+    ),
+  }))
+}
+
+/** Un acuerdo del servidor; si su material no está en la caché, lo trae. */
+export function adoptAgreement(dto: AgreementDto) {
+  const agreement = fromAgreementDto(dto)
+  updateCache((s) => ({ ...s, agreements: [...s.agreements.filter((a) => a.id !== agreement.id), agreement] }))
+  if (!getState().materials.some((m) => m.id === agreement.materialId)) void loadMaterial(agreement.materialId).catch(() => undefined)
+}
+
+export async function loadAgreements() {
+  if (!getState().sessionUserId) return
+  const dtos = await api<AgreementDto[]>('GET', '/agreements')
+  updateCache((s) => ({ ...s, agreements: dtos.map(fromAgreementDto) }))
+  const known = new Set(getState().materials.map((m) => m.id))
+  const missing = [...new Set(dtos.map((d) => d.materialId).filter((id) => !known.has(id)))]
+  await Promise.allSettled(missing.map((id) => loadMaterial(id)))
+}
+
+/** Cambia el estado de un material en la caché (llega por el socket o tras una acción propia). */
+export function setCachedMaterialStatus(materialId: string, status: Material['status'] | 'Eliminado') {
+  updateCache((s) => ({
+    ...s,
+    materials:
+      status === 'Eliminado'
+        ? s.materials.filter((m) => m.id !== materialId || inUse(s, m.id))
+        : s.materials.map((m) => (m.id === materialId ? { ...m, status } : m)),
+  }))
+}
+
+export async function loadNotifications() {
+  const me = getState().sessionUserId
+  if (!me) return
+  const dtos = await api<NotificationDto[]>('GET', '/notifications')
+  updateCache((s) => ({ ...s, notifications: [...s.notifications.filter((n) => n.userId !== me), ...dtos.map((n) => fromNotificationDto(n, me))] }))
+}
+
+/** Una notificación que llegó en vivo: la ventana emergente la muestra `alerts.ts`. */
+export function adoptLiveNotification(dto: NotificationDto) {
+  const me = getState().sessionUserId
+  if (!me || getState().notifications.some((n) => n.id === dto.id)) return
+  updateCache((s) => ({ ...s, notifications: [...s.notifications, fromNotificationDto(dto, me, true)] }))
+}
+
+/** Al abrir la app, iniciar sesión o reconectar el socket. Un fallo de red deja la caché como estaba. */
 export function syncAll() {
-  return Promise.allSettled([loadMaterials(), loadActivity()])
+  return Promise.allSettled([loadMaterials(), loadActivity(), loadConversations(), loadAgreements(), loadNotifications()])
 }
 
 /**

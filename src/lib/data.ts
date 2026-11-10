@@ -12,8 +12,8 @@ export const CONDITIONS: Condition[] = [...CONDITION_LIST]
 const seedUsers: User[] = SEED_USERS.map((u) => ({ ...u, verified: true, createdAt: 0 }))
 
 
-/** 2: los materiales vienen del servidor (etapa 2); el seed local ya no los incluye. */
-export const STATE_VERSION = 2
+/** 3: chats, acuerdos y notificaciones vienen del servidor (etapas 3 y 4); la simulación local ya no existe. */
+export const STATE_VERSION = 3
 
 export function createSeedState(): State {
   return {
@@ -27,7 +27,6 @@ export function createSeedState(): State {
     reports: [],
     savedSearches: [],
     saved: {},
-    scheduled: [],
   }
 }
 

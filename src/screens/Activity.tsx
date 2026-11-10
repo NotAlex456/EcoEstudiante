@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Avatar, Button, EmptyState, Icon, MaterialCard } from '../components/ui'
 import { navigate } from '../lib/router'
-import { loadActivity, useRefresh } from '../lib/sync'
+import { loadActivity, loadAgreements, loadConversations, useRefresh } from '../lib/sync'
 import {
   currentUser, deleteMaterial, deleteSavedSearch, formatDate, formatTime, setMaterialStatus, timeAgo, toast, toggleSaved, unreadCount, useStore,
 } from '../lib/store'
@@ -18,7 +18,7 @@ export function Activity({ tab = 'acuerdos' }: { tab?: string }) {
   const me = currentUser(state)!
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  useRefresh(loadActivity, [])
+  useRefresh(() => Promise.allSettled([loadActivity(), loadConversations(), loadAgreements()]), [])
 
   /** Ejecuta una acción sobre un material; el botón queda deshabilitado mientras responde el servidor. */
   const run = async (id: string, action: () => Promise<boolean>, okMessage?: string) => {

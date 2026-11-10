@@ -16,17 +16,7 @@ export function Profile({ id }: { id: string }) {
   const { loading, result: profile } = useRefresh(() => loadProfile(id), [id])
 
   const reviews = useMemo(() => {
-    // Valoraciones de acuerdos locales (modo mixto hasta la etapa 3) + reseñas del servidor.
-    const local = agreements
-      .filter((a) => a.sellerId === id && a.rating)
-      .map((a) => ({
-        key: a.id,
-        author: users.find((u) => u.id === a.buyerId)?.name ?? 'Estudiante',
-        stars: a.rating!.stars,
-        comment: a.rating!.comment,
-        at: a.rating!.at,
-        material: materials.find((m) => m.id === a.materialId)?.title ?? '',
-      }))
+    // Solo las reseñas del servidor: las valoraciones de acuerdos ya están entre ellas.
     const remote = (profile?.reviews ?? []).map((r, i) => ({
       key: `srv-${i}`,
       author: r.authorName,
@@ -35,11 +25,12 @@ export function Profile({ id }: { id: string }) {
       at: Date.parse(r.createdAt),
       material: r.materialTitle,
     }))
-    return [...local, ...remote].sort((a, b) => b.at - a.at)
-  }, [agreements, users, materials, id, profile])
+    return remote.sort((a, b) => b.at - a.at)
+  }, [profile])
 
   const available = materials.filter((m) => m.ownerId === id && m.status === 'Disponible')
-  const delivered = agreements.filter((a) => a.sellerId === id && a.status === 'Completado').length + (user?.rating?.count ?? 0)
+  // Entregas valoradas (reseñas del servidor) o, si hay más, las completadas que conoce esta caché.
+  const delivered = Math.max(agreements.filter((a) => a.sellerId === id && a.status === 'Completado').length, user?.rating?.count ?? 0)
 
   if (!user && loading) {
     return (

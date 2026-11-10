@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
-import { setUnauthorizedHandler, waitForServer } from './lib/api'
+import { getToken, setUnauthorizedHandler, waitForServer } from './lib/api'
 import { syncAll } from './lib/sync'
 import { startAlerts } from './lib/alerts'
+import { connectSocket, disconnectSocket } from './lib/socket'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
-import { currentUser, logout, processScheduled, restoreSession, unreadCount, useStore } from './lib/store'
+import { currentUser, logout, restoreSession, unreadCount, useStore } from './lib/store'
 import { Account, Notifications } from './screens/Account'
 import { Activity } from './screens/Activity'
 import { AgreementDetail, Schedule, Scheduled } from './screens/Agreement'
@@ -163,20 +164,17 @@ export default function App() {
     })
   }, [])
 
-  // Simulated replies and confirmations from other students.
-  useEffect(() => {
-    processScheduled()
-    const timer = setInterval(() => processScheduled(), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
   useEffect(() => {
     if (me) startAlerts()
   }, [me])
 
-  // Al abrir la app o iniciar sesión: traer materiales y "mi actividad" del servidor.
+  // Al abrir la app o iniciar sesión: traer todo del servidor y escuchar los cambios en vivo.
   useEffect(() => {
-    if (boot === 'ready' && me?.id) void syncAll()
+    const token = getToken()
+    if (boot !== 'ready' || !me?.id || !token) return
+    void syncAll()
+    connectSocket(token)
+    return () => disconnectSocket()
   }, [boot, me?.id])
 
   // In-app links go through the router so the back button stays inside the app.

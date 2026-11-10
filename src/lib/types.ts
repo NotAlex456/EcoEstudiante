@@ -14,7 +14,7 @@ export type User = {
   createdAt: number
   /** Reputación calculada por el servidor (reseñas recibidas). */
   rating?: { value: number; count: number }
-  /** Base reputation for seeded students; real ratings are added on top. */
+  /** Solo datos de ejemplo locales; la reputación real viene del servidor (`rating`). */
   baseRating?: number
   baseRatingCount?: number
 }
@@ -46,6 +46,8 @@ export type Conversation = {
   messages: Message[]
   /** Last time each participant opened the conversation. */
   readAt: Record<string, number>
+  /** Mensajes sin leer según el servidor (se suma uno por cada mensaje nuevo del otro). */
+  unread?: number
 }
 
 export type Agreement = {
@@ -70,6 +72,8 @@ export type Notification = {
   link: string
   at: number
   read: boolean
+  /** Llegó en vivo por el socket (solo esas muestran la ventana emergente). */
+  live?: boolean
 }
 
 export type Report = {
@@ -90,12 +94,6 @@ export type SavedSearch = {
   at: number
 }
 
-/** Simulated actions by other students that fire at a given time (survive reloads). */
-export type ScheduledEvent =
-  | { id: string; dueAt: number; kind: 'reply'; conversationId: string; from: string; text: string }
-  | { id: string; dueAt: number; kind: 'confirm-agreement'; agreementId: string }
-  | { id: string; dueAt: number; kind: 'buyer-interest'; materialId: string; ownerId: string; buyerId?: string; conversationId?: string }
-
 export type State = {
   version: number
   sessionUserId: string | null
@@ -108,5 +106,4 @@ export type State = {
   savedSearches: SavedSearch[]
   /** Saved material ids per user. */
   saved: Record<string, string[]>
-  scheduled: ScheduledEvent[]
 }

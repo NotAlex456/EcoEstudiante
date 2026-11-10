@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Avatar, BackLink, Button, EmptyState, Field, Icon, Sheet, Stars } from '../components/ui'
 import { CAREERS, COMMUNITY_RULES, CYCLES, SAFE_POINTS } from '../lib/data'
 import { navigate } from '../lib/router'
-import { currentUser, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
+import { currentUser, getState, logout, markNotificationsRead, resetDemo, timeAgo, toast, unreadCount, updateProfile, userRating, useStore } from '../lib/store'
+import { loadNotifications, loadProfile, useRefresh } from '../lib/sync'
 import { AccessibilitySettings, NotificationSettings } from './Settings'
 import { canInstall, installApp, useInstallState } from '../pwa'
 
@@ -16,6 +17,8 @@ export function Account({ section }: { section?: string }) {
   const [editing, setEditing] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const install = useInstallState()
+  // Mi reputación la calcula el servidor (reseñas recibidas).
+  useRefresh(() => loadProfile(me.id), [me.id])
 
   if (section === 'seguridad') return <SafetyGuide />
   if (section === 'notificaciones') return <NotificationSettings />
@@ -150,11 +153,22 @@ function SafetyGuide() {
   )
 }
 
+function cachedNotifications(userId: string) {
+  return getState().notifications.filter((n) => n.userId === userId)
+}
+
 export function Notifications() {
   const me = useStore(currentUser)!
   const all = useStore((s) => s.notifications)
   const list = all.filter((n) => n.userId === me.id).sort((a, b) => b.at - a.at)
-  const [unreadIds] = useState(() => new Set(list.filter((n) => !n.read).map((n) => n.id)))
+  const [unreadIds, setUnreadIds] = useState(() => new Set(list.filter((n) => !n.read).map((n) => n.id)))
+  // La lista viene del servidor; las que llegan sin leer se resaltan antes de marcarlas leídas.
+  useRefresh(async () => {
+    await loadNotifications()
+    const fresh = cachedNotifications(me.id).filter((n) => !n.read).map((n) => n.id)
+    setUnreadIds((ids) => new Set([...ids, ...fresh]))
+    markNotificationsRead()
+  }, [])
 
   useEffect(() => {
     markNotificationsRead()

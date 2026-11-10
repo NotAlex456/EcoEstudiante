@@ -18,6 +18,7 @@ export function Detail({ id }: { id: string }) {
   const materials = useStore((s) => s.materials)
   const [photo, setPhoto] = useState(0)
   const [reporting, setReporting] = useState(false)
+  const [contacting, setContacting] = useState(false)
   const { loading } = useRefresh(() => loadMaterial(id), [id])
 
   const myAgreement = agreements.find((a) => a.materialId === id && a.buyerId === me.id && (a.status === 'Pendiente' || a.status === 'Confirmado'))
@@ -47,7 +48,13 @@ export function Detail({ id }: { id: string }) {
   const mine = material.ownerId === me.id
   const unavailable = material.status !== 'Disponible' && !myAgreement
 
-  const contact = () => navigate(`#/chat/${openConversation(material.id)}`)
+  const contact = async () => {
+    if (contacting) return
+    setContacting(true)
+    const conversationId = await openConversation(material.id)
+    setContacting(false)
+    if (conversationId) navigate(`#/chat/${conversationId}`)
+  }
 
   return (
     <section className="detail page-enter">
@@ -98,13 +105,13 @@ export function Detail({ id }: { id: string }) {
           ) : myAgreement ? (
             <div className="detail__actions">
               <Button onClick={() => navigate(`#/acuerdo/${myAgreement.id}`)}><Icon name="calendar" /> Ver mi acuerdo</Button>
-              <Button variant="secondary" onClick={contact}><Icon name="message" /> Mensajes</Button>
+              <Button variant="secondary" disabled={contacting} onClick={contact}><Icon name="message" /> Mensajes</Button>
             </div>
           ) : unavailable ? (
             <div className="notice notice--warn"><Icon name="info" /><p><strong>Este material ya está {material.status.toLowerCase()}.</strong><span>Mira opciones similares abajo o guárdalo por si se libera.</span></p></div>
           ) : (
             <div className="detail__actions">
-              <Button onClick={contact}><Icon name="message" /> Contactar y acordar</Button>
+              <Button disabled={contacting} onClick={contact}><Icon name="message" /> Contactar y acordar</Button>
               <Button variant="secondary" onClick={() => toggleSaved(material.id)}><Icon name="heart" className={saved.includes(material.id) ? 'icon--filled' : ''} /> {saved.includes(material.id) ? 'Guardado' : 'Guardar'}</Button>
             </div>
           )}

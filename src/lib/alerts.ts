@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { Haptics } from '@capacitor/haptics'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { navigate } from './router'
-import { eventNotice, getState, noticeId, subscribe } from './store'
+import { getState, subscribe } from './store'
 import { getSettings, isQuietTime, type NotificationCategory } from './settings'
 import type { Notification } from './types'
 
@@ -130,8 +130,6 @@ if (isNative) {
   App.getState().then(({ isActive }) => (inForeground = isActive)).catch(() => undefined)
   App.addListener('appStateChange', ({ isActive }) => {
     inForeground = isActive
-    if (isActive) cancelBackgroundAlerts().catch(() => undefined)
-    else scheduleBackgroundAlerts().catch(() => undefined)
   })
 } else {
   document.addEventListener('visibilitychange', () => (inForeground = !document.hidden))
@@ -160,28 +158,10 @@ async function canNotifySystem() {
   return true
 }
 
-/** Leaving the app: Android shows the replies still on their way, even if the app gets closed. */
-async function scheduleBackgroundAlerts() {
-  if (!(await canNotifySystem())) return
-  const state = getState()
-  const { categories } = getSettings().notifications
-  const pending = state.scheduled.flatMap((event) => {
-    const notice = eventNotice(state, event)
-    if (!notice || notice.userId !== state.sessionUserId || !categories[categoryOf(notice.link)]) return []
-    handedToSystem.add(noticeId(event))
-    return [systemNotification(noticeId(event), notice.text, notice.link, event.dueAt)]
-  })
-  if (pending.length) await LocalNotifications.schedule({ notifications: pending })
-}
-
-async function cancelBackgroundAlerts() {
-  const { notifications } = await LocalNotifications.getPending()
-  if (notifications.length) await LocalNotifications.cancel({ notifications: notifications.map((n) => ({ id: n.id })) })
-  // Events not yet due will be shown inside the app instead; due ones Android already showed.
-  const now = Date.now()
-  const waiting = new Set(getState().scheduled.filter((e) => e.dueAt > now).map(noticeId))
-  for (const id of handedToSystem) if (waiting.has(id)) handedToSystem.delete(id)
-}
+/*
+ * Con la app en segundo plano el socket sigue conectado un rato: lo que llega se publica como
+ * notificación de Android. Con la app cerrada no hay socket; el push (FCM) llega en la etapa 5.
+ */
 
 /** A notification created while the app is in the background that Android doesn't have yet. */
 async function postNow(n: Notification) {
@@ -224,14 +204,15 @@ export async function openExactAlarmSetting() {
 
 /* ---------- start ---------- */
 
-// Watch from the moment the app loads, so replies that came while it was closed are noticed too.
+// Solo avisan las notificaciones que llegan en vivo por el socket; las que se cargan del servidor
+// al abrir la app ya se ven en la lista y no muestran la ventana emergente.
 const seen = new Set(getState().notifications.map((n) => n.id))
 subscribe(() => {
   const state = getState()
   for (const n of state.notifications) {
     if (seen.has(n.id)) continue
     seen.add(n.id)
-    if (n.userId !== state.sessionUserId || n.read) continue
+    if (!n.live || n.userId !== state.sessionUserId || n.read) continue
     if (inForeground) alertUnlessShown(n).catch(() => undefined)
     else if (isNative && !handedToSystem.has(n.id)) postNow(n).catch(() => undefined)
   }
