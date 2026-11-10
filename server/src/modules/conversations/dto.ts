@@ -66,6 +66,7 @@ export async function toConversationDtos(rows: ConversationWithRelations[], user
       career: others[i].career,
       cycle: others[i].cycle,
       rating: ratings.get(others[i].id) ?? { value: 0, count: 0 },
+      deleted: Boolean(others[i].deletedAt),
     },
   }))
 }

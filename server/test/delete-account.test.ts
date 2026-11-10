@@ -104,4 +104,25 @@ describe('eliminar mi cuenta', () => {
     await deleteMe(token)
     expect((await deleteMe(token)).status).toBe(401)
   })
+
+  it('escribir en una conversación con una cuenta eliminada responde 409 ACCOUNT_DELETED', async () => {
+    const a = await registerAndVerify(app)
+    const b = await registerAndVerify(app, other)
+    const material = await insertMaterial(a.user.id)
+    const opened = await request(app).post('/api/conversations').set(authHeader(b.token)).send({ materialId: material.id })
+    await deleteMe(a.token)
+    const res = await request(app).post(`/api/conversations/${opened.body.id}/messages`).set(authHeader(b.token)).send({ text: '¿Sigue disponible?' })
+    expect(res.status).toBe(409)
+    expect(res.body.error).toEqual({ code: 'ACCOUNT_DELETED', message: 'Esta cuenta fue eliminada.' })
+  })
+
+  it('la lista de conversaciones marca a la otra persona como eliminada', async () => {
+    const a = await registerAndVerify(app)
+    const b = await registerAndVerify(app, other)
+    const material = await insertMaterial(a.user.id)
+    await request(app).post('/api/conversations').set(authHeader(b.token)).send({ materialId: material.id })
+    await deleteMe(a.token)
+    const list = await request(app).get('/api/conversations').set(authHeader(b.token))
+    expect(list.body[0].other).toMatchObject({ name: 'Usuario eliminado', deleted: true })
+  })
 })

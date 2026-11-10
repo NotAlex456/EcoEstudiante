@@ -2,7 +2,15 @@ import type { Material, MaterialImage, MaterialStatus, User } from '@prisma/clie
 import { prisma } from '../../db'
 import { conditionLabel, modeLabel, type ConditionLabel, type ModeLabel } from '../../enums'
 
-export type OwnerDto = { id: string; name: string; career: string; cycle: number; rating: { value: number; count: number } }
+export type OwnerDto = {
+  id: string
+  name: string
+  career: string
+  cycle: number
+  rating: { value: number; count: number }
+  /** La cuenta fue eliminada: se muestra como "Usuario eliminado" y no se le puede escribir. */
+  deleted?: boolean
+}
 
 export type MaterialDto = {
   id: string
