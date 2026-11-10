@@ -38,8 +38,11 @@ export type ConversationService = ReturnType<typeof conversationService>
 export function conversationService(hub: Hub) {
   /** La conversación existente del comprador sobre el material, o una nueva. */
   async function open(materialId: string, buyerId: string): Promise<{ conversation: ConversationDto; created: boolean }> {
-    const material = await prisma.material.findUnique({ where: { id: materialId }, select: { ownerId: true, status: true } })
-    if (!material) throw materialNotFound()
+    const material = await prisma.material.findUnique({
+      where: { id: materialId },
+      select: { ownerId: true, status: true, owner: { select: { blockedAt: true } } },
+    })
+    if (!material || material.owner.blockedAt) throw materialNotFound()
     if (material.ownerId === buyerId) throw new AppError(400, 'OWN_MATERIAL', 'Es tu propia publicación.')
     const existing = await prisma.conversation.findUnique({ where: { materialId_buyerId: { materialId, buyerId } } })
     if (existing) return { conversation: await dtoFor(existing.id, buyerId), created: false }

@@ -138,8 +138,10 @@ describe('usuarios', () => {
 
   it('no se puede bloquear a uno mismo ni a otro administrador', async () => {
     expect((await admin('post', `/users/${ana.user.id}/block`).send({})).status).toBe(409)
+    // Beto también es administrador (está en ADMIN_EMAILS): no se lo puede bloquear.
+    const twoAdmins = makeApp({ adminEmails: [validRegistration.email, beto.user.email] }, { realtime })
     await prisma.user.update({ where: { id: beto.user.id }, data: { role: 'admin' } })
-    expect((await admin('post', `/users/${beto.user.id}/block`).send({})).status).toBe(409)
+    expect((await request(twoAdmins).post(`/api/admin/users/${beto.user.id}/block`).set(auth(ana.token)).send({})).status).toBe(409)
   })
 
   it('la lista de usuarios no incluye bots', async () => {
@@ -149,5 +151,39 @@ describe('usuarios', () => {
       [ana, beto, carla].map((w) => w.user.email).sort(),
     )
     expect(res.body.items[0]).toEqual(expect.objectContaining({ blocked: false, role: expect.any(String), materials: expect.any(Number) }))
+  })
+})
+
+describe('correcciones de la revisión final', () => {
+  it('sacar un correo de ADMIN_EMAILS corta el acceso de su sesión vigente', async () => {
+    const withoutList = makeApp({ adminEmails: [] }, { realtime })
+    const res = await request(withoutList).get('/api/admin/stats').set(auth(ana.token))
+    expect(res.status).toBe(403)
+  })
+
+  it('no se puede ocultar una publicación entregada ni restaurar una que no fue moderada', async () => {
+    const delivered = await insertMaterial(beto.user.id, { status: 'Entregado' })
+    const hide = await admin('post', `/materials/${delivered.id}/hide`).send({})
+    expect(hide.status).toBe(409)
+    await prisma.material.update({ where: { id: materialId }, data: { status: 'Pausado' } }) // pausada por su dueño
+    const restore = await admin('post', `/materials/${materialId}/restore`).send({})
+    expect(restore.status).toBe(409)
+    expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).status).toBe('Pausado')
+  })
+
+  it('con el dueño bloqueado no se puede abrir un chat ni proponer una entrega', async () => {
+    await admin('post', `/users/${beto.user.id}/block`).send({})
+    expect((await request(app).post('/api/conversations').set(auth(carla.token)).send({ materialId })).status).toBe(404)
+    const proposal = await request(app).post('/api/agreements').set(auth(carla.token))
+      .send({ materialId, place: 'Biblioteca central', date: futureDate(), time: '12:30' })
+    expect(proposal.status).toBe(404)
+  })
+
+  it('bloquear cancela sus entregas en curso y avisa a la otra persona', async () => {
+    const proposal = await request(app).post('/api/agreements').set(auth(carla.token))
+      .send({ materialId, place: 'Biblioteca central', date: futureDate(), time: '12:30' })
+    await admin('post', `/users/${beto.user.id}/block`).send({})
+    expect((await prisma.agreement.findUniqueOrThrow({ where: { id: proposal.body.id } })).status).toBe('Cancelado')
+    expect(await prisma.notification.findFirst({ where: { userId: carla.user.id, text: { contains: 'se canceló' } } })).not.toBeNull()
   })
 })

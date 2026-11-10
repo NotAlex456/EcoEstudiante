@@ -6,11 +6,12 @@ import { prisma } from '../../db'
 import { AppError } from '../../errors'
 import type { Mailer } from '../../integrations/mail'
 import type { Notifier } from '../../notify/notify'
+import type { Realtime } from '../../realtime/socket'
 import { toMe, type MeDto } from '../users/dto'
 import { isAllowedEmail, NOT_INSTITUTIONAL, type LoginInput, type RegisterInput } from './schemas'
 import { signToken } from './tokens'
 
-type Ctx = { mailer: Mailer; config: Config; notifier: Notifier }
+type Ctx = { mailer: Mailer; config: Config; notifier: Notifier; realtime?: Realtime }
 
 const CODE_TTL_MS = 15 * 60_000
 const RESEND_COOLDOWN_MS = 60_000
@@ -168,7 +169,7 @@ export async function forgotPassword(email: string, ctx: Ctx): Promise<{ ok: tru
 /** Cambia la contraseña con el código, cierra todas las sesiones anteriores y abre una nueva. */
 export async function resetPassword(
   input: { email: string; code: string; password: string },
-  { config }: Ctx,
+  { config, realtime }: Ctx,
 ): Promise<{ token: string; user: MeDto }> {
   const user = await prisma.user.findUnique({ where: { email: input.email } })
   if (!user || !user.verified || user.isBot || user.blockedAt) throw invalidCode()
@@ -179,6 +180,8 @@ export async function resetPassword(
     prisma.user.update({ where: { id: user.id }, data: { passwordHash, tokenVersion: { increment: 1 } } }),
     prisma.emailCode.deleteMany({ where: { userId: user.id, purpose: 'reset' } }),
   ])
+  // Las sesiones viejas ya no sirven (tokenVersion); las conexiones en vivo abiertas también se cortan.
+  realtime?.disconnectUser(user.id)
   const current = await syncRole(updated.id, updated.email, config)
   return { token: signToken(current.id, current.tokenVersion, config.jwtSecret), user: toMe(current) }
 }

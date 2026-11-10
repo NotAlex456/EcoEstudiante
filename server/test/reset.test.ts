@@ -83,3 +83,15 @@ describe('recuperar contraseña', () => {
     expect((await reset(sent[0].code, 'corta12')).status).toBe(400)
   })
 })
+
+describe('recuperar contraseña con conexión en vivo abierta', () => {
+  it('cambiar la contraseña corta las conexiones en vivo del usuario', async () => {
+    const { fakeRealtime } = await import('./helpers')
+    const realtime = fakeRealtime()
+    const live = makeApp({}, { mailer, realtime })
+    const ana = await registerAndVerify(live)
+    await request(live).post('/api/auth/forgot').send({ email })
+    await request(live).post('/api/auth/reset').send({ email, code: sent.at(-1)!.code, password: 'otraClave123' })
+    expect(realtime.disconnected).toContain(ana.user.id)
+  })
+})

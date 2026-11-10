@@ -88,6 +88,10 @@ export function adminService(hub: Hub, images: ImageStorage) {
   async function hideMaterial(adminId: string, id: string, reason?: string) {
     const material = await prisma.material.findUnique({ where: { id } })
     if (!material || material.status === 'Eliminado') throw materialNotFound()
+    if (material.moderatedAt) throw new AppError(409, 'ALREADY_HIDDEN', 'Esta publicación ya está oculta.')
+    // Una publicación entregada ya no se ofrece: ocultarla (y luego restaurarla) la volvería a listar.
+    if (material.status === 'Entregado')
+      throw new AppError(409, 'NOT_HIDEABLE', 'Esta publicación ya se entregó; no hace falta ocultarla.')
     const active = await prisma.agreement.findMany({
       where: { materialId: id, status: { in: ['Pendiente', 'Confirmado'] } },
       select: { id: true },
@@ -110,6 +114,8 @@ export function adminService(hub: Hub, images: ImageStorage) {
   async function restoreMaterial(adminId: string, id: string) {
     const material = await prisma.material.findUnique({ where: { id } })
     if (!material || material.status === 'Eliminado') throw materialNotFound()
+    // Solo se restaura lo que ocultó un administrador (no lo que pausó su dueño).
+    if (!material.moderatedAt) throw new AppError(409, 'NOT_MODERATED', 'Esta publicación no fue ocultada por un administrador.')
     await prisma.material.update({ where: { id }, data: { status: 'Disponible', moderatedAt: null } })
     await emitMaterialUpdated(hub.realtime, id, 'Disponible')
     await log(adminId, 'restore_material', id)
@@ -151,8 +157,8 @@ export function adminService(hub: Hub, images: ImageStorage) {
       await log(adminId, 'dismiss_report', reportId)
       return
     }
-    if (!report.material.moderatedAt && report.material.status !== 'Eliminado')
-      await hideMaterial(adminId, report.materialId, `Reporte: ${report.reason}`)
+    const hideable = !report.material.moderatedAt && !['Eliminado', 'Entregado'].includes(report.material.status)
+    if (hideable) await hideMaterial(adminId, report.materialId, `Reporte: ${report.reason}`)
     await prisma.report.updateMany({
       where: { materialId: report.materialId, resolvedAt: null },
       data: { resolvedAt: new Date(), resolution: 'hidden' },
@@ -196,10 +202,24 @@ export function adminService(hub: Hub, images: ImageStorage) {
   async function blockUser(adminId: string, userId: string, reason?: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } })
     if (!user || user.isBot) throw userNotFound()
-    if (user.id === adminId || user.role === 'admin')
+    if (user.id === adminId || hub.config.adminEmails.includes(user.email.toLowerCase()))
       throw new AppError(409, 'CANNOT_BLOCK', 'No puedes bloquear tu propia cuenta ni la de otro administrador.')
-    await prisma.user.update({ where: { id: userId }, data: { blockedAt: new Date(), tokenVersion: { increment: 1 } } })
+    const active = await prisma.agreement.findMany({
+      where: { status: { in: ['Pendiente', 'Confirmado'] }, OR: [{ buyerId: userId }, { sellerId: userId }] },
+      select: { id: true, materialId: true, status: true },
+    })
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { blockedAt: new Date(), tokenVersion: { increment: 1 } } }),
+      prisma.agreement.updateMany({ where: { id: { in: active.map((a) => a.id) } }, data: { status: 'Cancelado' } }),
+      // Un material reservado por una entrega cancelada vuelve a estar disponible.
+      prisma.material.updateMany({
+        where: { id: { in: active.filter((a) => a.status === 'Confirmado').map((a) => a.materialId) }, status: 'Reservado' },
+        data: { status: 'Disponible' },
+      }),
+    ])
     hub.realtime.disconnectUser(userId)
+    // Avisa a la otra persona de cada entrega (el bloqueado ya no puede entrar).
+    await agreements.announceCancelled(active.map((a) => a.id), userId, { byModeration: true })
     await log(adminId, 'block_user', userId, reason)
   }
 

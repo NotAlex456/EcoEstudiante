@@ -23,7 +23,7 @@ export function createRealtime(server: http.Server, config: Config): Realtime {
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token
     // Mismas reglas que la API: verificado, no bloqueado y con la versión de token actual.
-    const user = typeof token === 'string' ? await sessionUser(token, config.jwtSecret).catch(() => null) : null
+    const user = typeof token === 'string' ? await sessionUser(token, config).catch(() => null) : null
     if (!user) return next(new Error('UNAUTHENTICATED'))
     socket.data.userId = user.id
     next()

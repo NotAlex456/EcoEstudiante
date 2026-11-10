@@ -4,13 +4,14 @@ import type { Config } from '../../config'
 import { AppError } from '../../errors'
 import type { Mailer } from '../../integrations/mail'
 import type { Notifier } from '../../notify/notify'
+import type { Realtime } from '../../realtime/socket'
 import { currentUserId, requireAuth } from '../../middleware/auth'
 import { body } from '../../validate'
 import { getMe } from '../users/service'
 import { forgotSchema, loginSchema, registerSchema, resendSchema, resetSchema, verifySchema } from './schemas'
 import * as auth from './service'
 
-export function authRoutes(ctx: { config: Config; mailer: Mailer; notifier: Notifier }) {
+export function authRoutes(ctx: { config: Config; mailer: Mailer; notifier: Notifier; realtime?: Realtime }) {
   const router = Router()
 
   const limited = rateLimit({

@@ -75,9 +75,11 @@ export function agreementService(hub: Hub) {
   async function propose(buyerId: string, input: ProposeInput): Promise<AgreementDto> {
     const scheduleError = checkSchedule(input.date, input.time)
     if (scheduleError) throw new AppError(400, 'VALIDATION', scheduleError)
-    const material = await prisma.material.findUnique({ where: { id: input.materialId } })
+    const material = await prisma.material.findUnique({ where: { id: input.materialId }, include: { owner: { select: { blockedAt: true } } } })
     if (!material || material.status === 'Eliminado' || (material.status === 'Pausado' && material.ownerId !== buyerId))
       throw materialNotFound()
+    // Con una cuenta bloqueada no se puede acordar nada (su publicación ni siquiera se muestra).
+    if (material.owner.blockedAt) throw materialNotFound()
     if (material.ownerId === buyerId) throw new AppError(400, 'OWN_MATERIAL', 'Es tu propia publicación.')
 
     // Serializable: si dos compradores proponen a la vez, solo una transacción puede confirmar.
@@ -206,7 +208,7 @@ export function agreementService(hub: Hub) {
         category: 'acuerdos',
         link: `#/acuerdo/${id}`,
         text: opts.byModeration
-          ? `La entrega de “${title}” se canceló porque un administrador ocultó la publicación.`
+          ? `La entrega de “${title}” se canceló por una decisión de la administración.`
           : `${await nameOf(actorId)} canceló la entrega de “${title}”.`,
       })
     }

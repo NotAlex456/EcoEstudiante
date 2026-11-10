@@ -38,7 +38,7 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
     res.json({ ok: true })
   })
 
-  app.use('/api/auth', authRoutes({ config, mailer, notifier }))
+  app.use('/api/auth', authRoutes({ config, mailer, notifier, realtime }))
   app.use('/api/users', myMaterialsRoute(config), userRoutes(config))
   app.use('/api/uploads', uploadRoutes(config, images))
   app.use('/api/materials', materialRoutes(hub, images))
@@ -62,9 +62,24 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
       res.setHeader('X-Frame-Options', 'DENY')
       next()
     }
-    app.use('/admin', noFrames, express.static(config.adminDir, { index: 'index.html', maxAge: '1h' }))
-    // Rutas internas del panel (/admin/usuarios…) devuelven su página.
-    app.get('/admin/*rest', noFrames, (_req, res) => res.sendFile(path.join(config.adminDir, 'index.html')))
+    const page = (res: express.Response) => res.setHeader('Cache-Control', 'no-cache')
+    app.use(
+      '/admin',
+      noFrames,
+      express.static(config.adminDir, {
+        index: 'index.html',
+        // Tras cada despliegue cambian los nombres de los archivos: la página se revisa siempre y los archivos
+        // (con huella en el nombre) se guardan un año.
+        setHeaders: (res, file) =>
+          file.endsWith('index.html') ? page(res) : res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'),
+      }),
+    )
+    // Rutas internas del panel (/admin/usuarios…) devuelven su página; un archivo que no existe, 404.
+    app.get('/admin/*rest', noFrames, (req, res, next) => {
+      if (path.extname(req.path)) return next()
+      page(res)
+      res.sendFile(path.join(config.adminDir, 'index.html'))
+    })
   }
 
   app.use((_req, _res, next) => next(notFound()))

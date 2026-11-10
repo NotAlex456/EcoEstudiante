@@ -78,6 +78,10 @@ describe('panel de administración (/admin)', () => {
     const deep = await request(app).get('/admin/usuarios')
     expect(deep.status).toBe(200)
     expect(deep.text).toContain('Panel EcoEstudiante')
+    // Tras un nuevo despliegue la página no debe quedar en caché apuntando a archivos viejos…
+    expect(home.headers['cache-control']).toContain('no-cache')
+    // …y un archivo que ya no existe da 404, no la página (el navegador no ejecutaría HTML como script).
+    expect((await request(app).get('/admin/assets/index-viejo.js')).status).toBe(404)
   })
 
   it('sin la carpeta compilada no monta /admin', async () => {

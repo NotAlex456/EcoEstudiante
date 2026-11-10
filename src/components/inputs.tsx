@@ -106,7 +106,11 @@ export function Select<T extends string | number>({
           aria-selected={o.value === value}
           className={`select__option ${i === active ? 'is-active' : ''}`}
           onMouseEnter={() => setActive(i)}
-          onClick={() => choose(i)}
+          onClick={(e) => {
+            // Dentro de un <label> (Field, filtros) el clic activaría el botón del selector y lo volvería a abrir.
+            e.preventDefault()
+            choose(i)
+          }}
         >
           <span>{o.label}</span>
           {o.value === value && <Icon name="check" size={18} />}
