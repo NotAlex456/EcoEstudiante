@@ -67,6 +67,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     throw new Error(`Configuración inválida. ${problems}`)
   }
   const e = parsed.data
+  // En producción el disco del servidor se borra en cada despliegue y no hay consola para leer códigos.
+  if (env.NODE_ENV === 'production') {
+    if (!e.CLOUDINARY_URL) console.warn('Aviso: falta CLOUDINARY_URL; las fotos se guardarán en disco y se perderán al redesplegar.')
+    if (!e.RESEND_API_KEY && !(e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS))
+      console.warn('Aviso: no hay correo configurado (RESEND_API_KEY o SMTP_*); los códigos de verificación solo se verán en la consola.')
+  }
   return {
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,

@@ -44,3 +44,21 @@ describe('app', () => {
     expect(c.mail.smtp).toBeUndefined()
   })
 })
+
+describe('configuración de producción', () => {
+  const base = { DATABASE_URL: 'postgresql://x', JWT_SECRET: 'x'.repeat(32) }
+  it('avisa si en producción faltan Cloudinary o el correo', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    loadConfig({ ...base, NODE_ENV: 'production' })
+    const text = warn.mock.calls.flat().join(' ')
+    expect(text).toContain('CLOUDINARY_URL')
+    expect(text).toContain('correo')
+    warn.mockRestore()
+  })
+  it('en desarrollo no avisa', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    loadConfig(base)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+})
