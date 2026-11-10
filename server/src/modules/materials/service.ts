@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { MaterialStatus, Prisma } from '@prisma/client'
 import { CATEGORIES } from '../../../../shared/constants'
 import { matchesSearch } from '../../../../shared/search'
 import { prisma } from '../../db'
@@ -6,6 +6,7 @@ import { toCondition, toMode } from '../../enums'
 import { AppError } from '../../errors'
 import type { ImageStorage } from '../../integrations/images'
 import type { Notifier } from '../../notify/notify'
+import type { Realtime } from '../../realtime/socket'
 import { materialInclude, toMaterialDto, toMaterialDtos, type MaterialDto } from './dto'
 import type { ListQuery, MaterialInput } from './schemas'
 
@@ -206,3 +207,14 @@ export async function listMine(userId: string): Promise<MaterialDto[]> {
 }
 
 export { dataFrom, checkImages }
+
+/** Avisa el nuevo estado de un material al dueño y a quienes conversan sobre él. */
+export async function emitMaterialUpdated(realtime: Realtime, materialId: string, status: MaterialStatus) {
+  const material = await prisma.material.findUnique({
+    where: { id: materialId },
+    select: { ownerId: true, conversations: { select: { buyerId: true } } },
+  })
+  if (!material) return
+  const users = new Set([material.ownerId, ...material.conversations.map((c) => c.buyerId)])
+  for (const userId of users) realtime.emitToUser(userId, 'material:updated', { materialId, status })
+}

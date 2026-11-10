@@ -7,6 +7,7 @@ import { createMailer, type Mailer } from './integrations/mail'
 import { createNotifier, type Notifier } from './notify/notify'
 import { nullRealtime, type Realtime } from './realtime/socket'
 import { authRoutes } from './modules/auth/routes'
+import { agreementRoutes } from './modules/agreements/routes'
 import { conversationRoutes } from './modules/conversations/routes'
 import { materialRoutes, myMaterialsRoute } from './modules/materials/routes'
 import { notificationRoutes } from './modules/notifications/routes'
@@ -34,12 +35,13 @@ export function createApp(config: Config, deps: Partial<AppDeps> = {}) {
   app.use('/api/auth', authRoutes({ config, mailer, notifier }))
   app.use('/api/users', myMaterialsRoute(config), userRoutes(config))
   app.use('/api/uploads', uploadRoutes(config, images))
-  app.use('/api/materials', materialRoutes(config, images, notifier))
+  app.use('/api/materials', materialRoutes(hub, images))
   app.use('/api/saved', savedRoutes(config))
   app.use('/api/saved-searches', savedSearchRoutes(config))
   app.use('/api/reports', reportRoutes(config))
   app.use('/api/notifications', notificationRoutes(config))
   app.use('/api/conversations', conversationRoutes(hub))
+  app.use('/api/agreements', agreementRoutes(hub))
 
   // Fotos guardadas en disco (solo cuando no hay Cloudinary).
   if (images.mode === 'local') {

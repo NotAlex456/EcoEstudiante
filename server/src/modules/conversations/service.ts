@@ -77,8 +77,11 @@ export function conversationService(hub: Hub) {
     return rows.reverse().map(toMessageDto)
   }
 
-  /** Envía un mensaje: lo guarda, lo emite a ambos, avisa al otro y, si es un bot, le programa la respuesta. */
-  async function sendMessage(conversationId: string, senderId: string, text: string): Promise<MessageDto> {
+  /**
+   * Envía un mensaje: lo guarda, lo emite a ambos, avisa al otro y, si es un bot, le programa la respuesta.
+   * `quiet`: mensajes que acompañan a otra acción (propuesta, confirmación) que ya tiene su propio aviso.
+   */
+  async function sendMessage(conversationId: string, senderId: string, text: string, opts: { quiet?: boolean } = {}): Promise<MessageDto> {
     const c = await participating(conversationId, senderId)
     const isBuyer = c.buyerId === senderId
     const otherId = isBuyer ? c.sellerId : c.buyerId
@@ -93,6 +96,7 @@ export function conversationService(hub: Hub) {
     const dto = toMessageDto(message)
     for (const userId of [c.buyerId, c.sellerId]) hub.realtime.emitToUser(userId, 'message:new', { conversationId, message: dto })
 
+    if (opts.quiet) return dto
     const [sender, other] = await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: senderId }, select: { name: true } }),
       prisma.user.findUniqueOrThrow({ where: { id: otherId }, select: { isBot: true } }),
