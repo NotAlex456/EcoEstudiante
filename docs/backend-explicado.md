@@ -640,6 +640,7 @@ pantalla de la app, las fotos se guardan en una carpeta local y el push se omite
 - **Cada despliegue** compila el servidor y, al arrancar, ejecuta `npm run start:prod`: aplica las migraciones
   pendientes (`prisma migrate deploy`), carga los datos de ejemplo que falten, sin pisar lo que cambió con el uso y arranca.
 - **Para actualizar:** basta con subir cambios a la rama conectada en GitHub; Render vuelve a desplegar solo.
+- **Página principal** (https://ecoestudiante-api.onrender.com/): muestra en vivo el estado del servidor y de la base de datos (consulta `/api/health` cada 10 s: base de datos, tiempo de respuesta, tiempo activo y versión) y lleva al panel `/admin`. `/api/health` responde siempre 200, para no confundir el chequeo de salud de Render.
 - **Las claves** solo están en el panel de Render y en archivos locales fuera de git (`server/.env`,
   `server/.env.render`, la clave de Firebase y `google-services.json`).
 - **El APK 2.0** se compila con `VITE_API_URL` apuntando a Render (archivo `.env.production`, que no es secreto).
