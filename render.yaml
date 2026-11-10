@@ -19,7 +19,8 @@ services:
       - key: BOTS_ENABLED
         value: "true"
       - key: CORS_ORIGINS
-        value: https://localhost,capacitor://localhost,http://localhost:5173,http://localhost:8443
+        # La web pública (el sitio estático de abajo), el APK (https://localhost y capacitor://localhost) y el desarrollo local.
+        value: https://ecoestudiante.onrender.com,https://localhost,capacitor://localhost,http://localhost:5173,http://localhost:8443
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -38,3 +39,35 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
+
+  # La app en la web (la misma del APK, compilada con Vite) como sitio estático gratuito:
+  # https://ecoestudiante.onrender.com. Se conecta al servidor de arriba (VITE_API_URL en .env.production).
+  - type: web
+    name: ecoestudiante
+    runtime: static
+    buildCommand: npx pnpm@10.34.3 install --frozen-lockfile && npx pnpm@10.34.3 build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+    headers:
+      # index.html y el service worker sin caché, para que cada versión nueva llegue al instante.
+      - path: /
+        name: Cache-Control
+        value: no-cache
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      # Los archivos compilados llevan un hash en el nombre: se pueden guardar para siempre.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff

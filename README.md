@@ -10,7 +10,8 @@ materiales académicos (libros, apuntes, calculadoras y separatas) y así reutil
 
 - **Android:** descarga `EcoEstudiante-2.1.apk` desde la sección **Releases** de este repositorio e instálalo
   (Android 7.0 o superior; permite "instalar apps desconocidas" cuando el teléfono lo pida).
-- **Navegador:** sigue los pasos de [Ejecutar en una computadora](#ejecutar-en-una-computadora).
+- **Navegador:** abre https://ecoestudiante.onrender.com desde la PC o el celular. Es la misma app del APK, salvo los
+  avisos push, que solo existen en Android.
 
 Desde la versión 2.0 la app usa un **servidor propio** publicado en https://ecoestudiante-api.onrender.com. Todos los estudiantes ven las mismas
 publicaciones, chatean en tiempo real y reciben avisos aunque la app esté cerrada. Además hay estudiantes
