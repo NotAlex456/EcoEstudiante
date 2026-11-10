@@ -33,3 +33,7 @@ logs/
 # Servidor
 server/.pg-data/
 server/uploads/
+
+# Clave privada de la cuenta de servicio de Firebase (nunca a git)
+*service-account*.json
+firebase-adminsdk*.json
