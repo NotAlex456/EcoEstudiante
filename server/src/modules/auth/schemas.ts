@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { CAREERS, INSTITUTIONAL_EMAIL } from '../../../../shared/constants'
 
-export const email = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(INSTITUTIONAL_EMAIL, 'Usa tu correo institucional (nombre.apellido@upsjb.edu.pe).')
+export const NOT_INSTITUTIONAL = 'Usa tu correo institucional (nombre.apellido@upsjb.edu.pe).'
+
+/** Formato de correo; que sea institucional (o esté en ALLOWED_EMAILS) lo comprueba el servicio. */
+export const email = z.string().trim().toLowerCase().email(NOT_INSTITUTIONAL)
+
+export const isAllowedEmail = (value: string, allowed: string[]) => INSTITUTIONAL_EMAIL.test(value) || allowed.includes(value)
 
 export const name = z.string().trim().min(3, 'Escribe tu nombre y apellido.').max(80)
 export const career = z.enum(CAREERS as [string, ...string[]], 'Elige una carrera de la lista.')

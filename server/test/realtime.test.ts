@@ -54,6 +54,13 @@ describe('Socket.IO', () => {
     expect(await rejected(open('no-es-un-token'))).toBe('UNAUTHENTICATED')
   })
 
+  it('rechaza a un usuario bloqueado aunque su token sea válido', async () => {
+    const ana = await registerAndVerify(createApp(config, { realtime }))
+    const { prisma } = await import('../src/db')
+    await prisma.user.update({ where: { id: ana.user.id }, data: { blockedAt: new Date() } })
+    expect(await rejected(open(ana.token))).toBe('UNAUTHENTICATED')
+  })
+
   it('conecta con token válido y entrega eventos solo a su usuario', async () => {
     const app = createApp(config, { realtime })
     const ana = await registerAndVerify(app)

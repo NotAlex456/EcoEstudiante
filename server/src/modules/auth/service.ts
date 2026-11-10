@@ -7,7 +7,7 @@ import { AppError } from '../../errors'
 import type { Mailer } from '../../integrations/mail'
 import type { Notifier } from '../../notify/notify'
 import { toMe, type MeDto } from '../users/dto'
-import type { LoginInput, RegisterInput } from './schemas'
+import { isAllowedEmail, NOT_INSTITUTIONAL, type LoginInput, type RegisterInput } from './schemas'
 import { signToken } from './tokens'
 
 type Ctx = { mailer: Mailer; config: Config; notifier: Notifier }
@@ -41,6 +41,9 @@ async function issueCode(user: { id: string; email: string; name: string }, { ma
 }
 
 export async function register(input: RegisterInput, ctx: Ctx): Promise<{ userId: string; devCode?: string }> {
+  // Mismo error que un correo mal escrito: no revela que existe una lista de correos permitidos.
+  if (!isAllowedEmail(input.email, ctx.config.allowedEmails))
+    throw new AppError(400, 'VALIDATION', 'Revisa los datos enviados.', { fields: { email: NOT_INSTITUTIONAL } })
   try {
     return await registerOnce(input, ctx)
   } catch (error) {
@@ -111,8 +114,8 @@ export async function verify(
       text: '¡Bienvenido/a a EcoEstudiante! Tu correo institucional quedó verificado.',
     })
   }
-  const verified = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
-  return { token: signToken(verified.id, config.jwtSecret), user: toMe(verified) }
+  const verified = await syncRole(user.id, user.email, config)
+  return { token: signToken(verified.id, verified.tokenVersion, config.jwtSecret), user: toMe(verified) }
 }
 
 export async function login(input: LoginInput, ctx: Ctx): Promise<{ token: string; user: MeDto }> {
@@ -125,5 +128,14 @@ export async function login(input: LoginInput, ctx: Ctx): Promise<{ token: strin
       ...(issued.sent && issued.devCode ? { devCode: issued.devCode } : {}),
     })
   }
-  return { token: signToken(user.id, ctx.config.jwtSecret), user: toMe(user) }
+  if (user.blockedAt)
+    throw new AppError(403, 'ACCOUNT_BLOCKED', 'Tu cuenta está suspendida. Escribe a la administración si crees que es un error.')
+  const current = await syncRole(user.id, user.email, ctx.config)
+  return { token: signToken(current.id, current.tokenVersion, ctx.config.jwtSecret), user: toMe(current) }
+}
+
+/** El rol sigue a ADMIN_EMAILS: se asigna o se quita al verificar el correo y en cada ingreso. */
+async function syncRole(userId: string, email: string, config: Config) {
+  const role = config.adminEmails.includes(email.toLowerCase()) ? 'admin' : 'student'
+  return prisma.user.update({ where: { id: userId }, data: { role } })
 }

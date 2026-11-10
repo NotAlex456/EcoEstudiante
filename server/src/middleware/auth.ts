@@ -1,3 +1,4 @@
+import type { UserRole } from '@prisma/client'
 import type { RequestHandler } from 'express'
 import type { Config } from '../config'
 import { prisma } from '../db'
@@ -7,36 +8,60 @@ import { verifyToken } from '../modules/auth/tokens'
 declare global {
   namespace Express {
     interface Request {
-      user?: { id: string }
+      user?: { id: string; role: UserRole }
     }
   }
 }
 
 const unauthenticated = () => new AppError(401, 'UNAUTHENTICATED', 'Tu sesión expiró. Vuelve a ingresar.')
+const notAdmin = () => new AppError(403, 'FORBIDDEN', 'No tienes acceso al panel de administración.')
 
-/** Id de un usuario verificado según el encabezado Authorization, o null. */
-async function authenticatedUserId(header: string | undefined, secret: string) {
-  const [scheme, token] = (header ?? '').split(' ')
-  const userId = scheme === 'Bearer' && token ? verifyToken(token, secret) : null
-  const user = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, verified: true } }) : null
-  return user?.verified ? user.id : null
+/**
+ * Usuario de un token válido: existe, está verificado, no está bloqueado y la versión del token es la actual.
+ * Se consulta en cada petición, así un bloqueo o un cambio de contraseña cortan la sesión al instante.
+ */
+export async function sessionUser(token: string | undefined, secret: string) {
+  const claims = token ? verifyToken(token, secret) : null
+  if (!claims) return null
+  const user = await prisma.user.findUnique({
+    where: { id: claims.userId },
+    select: { id: true, verified: true, tokenVersion: true, blockedAt: true, role: true },
+  })
+  if (!user?.verified || user.blockedAt || user.tokenVersion !== claims.version) return null
+  return { id: user.id, role: user.role }
 }
 
-/** Exige `Authorization: Bearer <token>` de un usuario existente y verificado. */
+const bearer = (header: string | undefined) => {
+  const [scheme, token] = (header ?? '').split(' ')
+  return scheme === 'Bearer' && token ? token : undefined
+}
+
+/** Exige `Authorization: Bearer <token>` de una sesión vigente. */
 export function requireAuth(config: Config): RequestHandler {
   return async (req, _res, next) => {
-    const id = await authenticatedUserId(req.headers.authorization, config.jwtSecret)
-    if (!id) return next(unauthenticated())
-    req.user = { id }
+    const user = await sessionUser(bearer(req.headers.authorization), config.jwtSecret)
+    if (!user) return next(unauthenticated())
+    req.user = user
     next()
   }
 }
 
-/** Para rutas públicas: identifica al usuario si hay un token válido; si no, sigue como anónimo. */
+/** Como requireAuth, y además el rol de administrador (leído de la base en cada petición). */
+export function requireAdmin(config: Config): RequestHandler {
+  const auth = requireAuth(config)
+  return (req, res, next) =>
+    auth(req, res, (error?: unknown) => {
+      if (error) return next(error)
+      if (req.user?.role !== 'admin') return next(notAdmin())
+      next()
+    })
+}
+
+/** Para rutas públicas: identifica al usuario si hay una sesión vigente; si no, sigue como anónimo. */
 export function optionalAuth(config: Config): RequestHandler {
   return async (req, _res, next) => {
-    const id = await authenticatedUserId(req.headers.authorization, config.jwtSecret)
-    if (id) req.user = { id }
+    const user = await sessionUser(bearer(req.headers.authorization), config.jwtSecret)
+    if (user) req.user = user
     next()
   }
 }

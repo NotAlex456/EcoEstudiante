@@ -21,6 +21,10 @@ export type Config = {
   cloudinaryUrl?: string
   /** Cuenta de servicio de Firebase (JSON). Sin ella no se envía push. */
   firebaseServiceAccount?: Record<string, unknown>
+  /** Correos no institucionales que igual pueden registrarse (en minúsculas). */
+  allowedEmails: string[]
+  /** Correos que reciben el rol de administrador al ingresar (en minúsculas). */
+  adminEmails: string[]
 }
 
 const optional = z
@@ -43,6 +47,8 @@ const schema = z.object({
   SMTP_PASS: optional,
   UPLOADS_DIR: optional,
   CLOUDINARY_URL: optional,
+  ALLOWED_EMAILS: optional,
+  ADMIN_EMAILS: optional,
   // JSON de la cuenta de servicio de Firebase, codificado en base64 (una sola línea, cómodo para Render).
   FIREBASE_SERVICE_ACCOUNT: optional.transform((v, ctx) => {
     if (!v) return undefined
@@ -61,6 +67,10 @@ const schema = z.object({
     .optional()
     .transform((v) => v !== 'false'),
 })
+
+/** "a@b.com, C@d.com" → ['a@b.com', 'c@d.com']. */
+const emailList = (value?: string) =>
+  (value ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
 
 /** Lee y valida las variables de entorno. Lanza un error que nombra cada variable inválida. */
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -96,5 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     uploadsDir: path.resolve(e.UPLOADS_DIR ?? path.join(import.meta.dirname, '..', 'uploads')),
     cloudinaryUrl: e.CLOUDINARY_URL,
     firebaseServiceAccount: e.FIREBASE_SERVICE_ACCOUNT,
+    allowedEmails: emailList(e.ALLOWED_EMAILS),
+    adminEmails: emailList(e.ADMIN_EMAILS),
   }
 }

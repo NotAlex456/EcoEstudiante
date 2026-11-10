@@ -18,6 +18,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     mail: { from: 'test@eco' },
     botsEnabled: false,
     uploadsDir: path.join(os.tmpdir(), 'eco-test-uploads'),
+    allowedEmails: [],
+    adminEmails: [],
     ...overrides,
   }
 }
@@ -64,8 +66,12 @@ export function fakeRealtime(opts: { allOnline?: boolean } = {}) {
       events.push({ userId, event, payload })
     },
     isOnline: async (userId: string) => Boolean(opts.allOnline) || online.has(userId),
+    disconnected: [] as string[],
+    disconnectUser(userId: string) {
+      this.disconnected.push(userId)
+    },
     close: async () => {},
-  } satisfies Realtime & { events: unknown[]; online: Set<string> }
+  } satisfies Realtime & { events: unknown[]; online: Set<string>; disconnected: string[] }
 }
 
 /** Inserta un material directamente (sin pasar por fotos ni validaciones de la API). */
