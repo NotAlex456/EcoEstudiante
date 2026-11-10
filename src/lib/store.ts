@@ -14,7 +14,8 @@ import {
   type MaterialDto,
   type MessageDto,
 } from './sync'
-import type { Conversation, Material, State, User } from './types'
+import { unregisterPush } from './push'
+import type { Conversation, Material, NotificationPrefs, State, User } from './types'
 
 const STORAGE_KEY = 'ecoestudiante:v1'
 import { INSTITUTIONAL_EMAIL } from '../../shared/constants'
@@ -133,11 +134,11 @@ export const initials = (name: string) =>
 
 /* ---------- auth (servidor) ---------- */
 
-type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string }
+type MeDto = { id: string; name: string; email: string; career: string; cycle: number; createdAt: string; notificationPrefs: NotificationPrefs }
 
 /** Guarda al usuario del servidor en la caché local y abre su sesión. */
 function adoptUser(me: MeDto) {
-  const user: User = { id: me.id, name: me.name, email: me.email, career: me.career, cycle: me.cycle, verified: true, createdAt: Date.parse(me.createdAt) }
+  const user: User = { id: me.id, name: me.name, email: me.email, career: me.career, cycle: me.cycle, verified: true, createdAt: Date.parse(me.createdAt), notificationPrefs: me.notificationPrefs }
   // Conserva la reputación que ya trajo el perfil (el servidor la calcula aparte).
   setState((s) => ({ ...s, sessionUserId: user.id, users: [...s.users.filter((u) => u.id !== user.id), { ...user, rating: userById(s, user.id)?.rating }] }))
 }
@@ -212,6 +213,7 @@ export async function restoreSession() {
 }
 
 export function logout() {
+  unregisterPush() // sale antes de borrar la sesión
   setToken(null)
   setState((s) => ({ ...s, sessionUserId: null }))
 }
@@ -221,6 +223,25 @@ export async function updateProfile(patch: Pick<User, 'name' | 'career' | 'cycle
     adoptUser(await api<MeDto>('PATCH', '/users/me', patch))
     return true
   } catch (error) {
+    toast(failure(error).error, 'error')
+    return false
+  }
+}
+
+/** Guarda en el servidor las preferencias de aviso. Optimista: si falla, vuelve a las anteriores. */
+export async function updateNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<boolean> {
+  const me = currentUser(state)
+  if (!me?.notificationPrefs) return false
+  const before = me.notificationPrefs
+  const next = { ...before, ...patch, categories: { ...before.categories, ...patch.categories } }
+  const apply = (prefs: NotificationPrefs) =>
+    setState((s) => ({ ...s, users: s.users.map((u) => (u.id === me.id ? { ...u, notificationPrefs: prefs } : u)) }))
+  apply(next)
+  try {
+    adoptUser(await api<MeDto>('PATCH', '/users/me', { notificationPrefs: next }))
+    return true
+  } catch (error) {
+    apply(before)
     toast(failure(error).error, 'error')
     return false
   }

@@ -4,6 +4,13 @@ export type Condition = 'Como nuevo' | 'Buen estado' | 'Usado'
 export type MaterialStatus = 'Disponible' | 'Reservado' | 'Entregado' | 'Pausado'
 export type AgreementStatus = 'Pendiente' | 'Confirmado' | 'Completado' | 'Cancelado'
 
+/** Preferencias de aviso que guarda el servidor (el push las necesita con la app cerrada). */
+export type NotificationPrefs = {
+  push: boolean
+  quietNight: boolean
+  categories: { mensajes: boolean; acuerdos: boolean; busquedas: boolean; cuenta: boolean }
+}
+
 export type User = {
   id: string
   name: string
@@ -14,6 +21,8 @@ export type User = {
   createdAt: number
   /** Reputación calculada por el servidor (reseñas recibidas). */
   rating?: { value: number; count: number }
+  /** Solo del usuario con sesión. */
+  notificationPrefs?: NotificationPrefs
   /** Solo datos de ejemplo locales; la reputación real viene del servidor (`rating`). */
   baseRating?: number
   baseRatingCount?: number

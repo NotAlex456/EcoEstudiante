@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
+import { App as NativeApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { AppLogo, Avatar, Button, Icon, IconName, NotificationBanner, Toasts } from './components/ui'
 import { getToken, setUnauthorizedHandler, waitForServer } from './lib/api'
 import { syncAll } from './lib/sync'
 import { startAlerts } from './lib/alerts'
+import { registerPush } from './lib/push'
 import { connectSocket, disconnectSocket } from './lib/socket'
 import { navigate, Route, tabOf, useRoute } from './lib/router'
 import { currentUser, logout, restoreSession, unreadCount, useStore } from './lib/store'
@@ -174,7 +177,16 @@ export default function App() {
     if (boot !== 'ready' || !me?.id || !token) return
     void syncAll()
     connectSocket(token)
-    return () => disconnectSocket()
+    void registerPush()
+    // En Android, al salir de la app se cierra la conexión en vivo: así el servidor sabe que debe mandar
+    // push. Al volver, se reconecta (y la conexión vuelve a sincronizar todo).
+    const appState = Capacitor.isNativePlatform()
+      ? NativeApp.addListener('appStateChange', ({ isActive }) => (isActive ? connectSocket(token) : disconnectSocket()))
+      : null
+    return () => {
+      disconnectSocket()
+      void appState?.then((handle) => handle.remove())
+    }
   }, [boot, me?.id])
 
   // In-app links go through the router so the back button stays inside the app.
